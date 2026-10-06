@@ -92,6 +92,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     # ---- pages --------------------------------------------------------------------
     @app.get("/")
+    @app.get("/api/index")
     def index():
         cfg = {
             "clientId": settings.google_client_id,

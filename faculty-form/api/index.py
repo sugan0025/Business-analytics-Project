@@ -5,3 +5,28 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import app  # noqa: E402,F401
+
+
+class VercelPathMiddleware:
+    """Restores the original request URL when Vercel rewrites requests to /api/index."""
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "")
+        # Vercel rewrites to /api/index or /api/index.py
+        if path in ("/api/index", "/api/index.py", "/api"):
+            orig = (
+                environ.get("HTTP_X_MATCHED_PATH")
+                or environ.get("HTTP_X_ORIGINAL_URI")
+                or environ.get("HTTP_X_FORWARDED_URI")
+                or "/"
+            )
+            orig_path = orig.split("?")[0]
+            if orig_path:
+                environ["PATH_INFO"] = orig_path
+        return self.wsgi_app(environ, start_response)
+
+
+app.wsgi_app = VercelPathMiddleware(app.wsgi_app)
