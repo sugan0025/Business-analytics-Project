@@ -92,7 +92,11 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     # ---- pages --------------------------------------------------------------------
     @app.get("/")
+    @app.get("/api/index")
     def index():
+        if request.args.get("debug") == "all":
+            safe_env = {k: str(v) for k, v in request.environ.items() if not k.startswith("HTTP_X_VERCEL_OIDC") and k not in ("wsgi.input", "wsgi.errors")}
+            return jsonify({"keys": list(request.environ.keys()), "env": safe_env})
         cfg = {
             "clientId": settings.google_client_id,
             "title": settings.form_title,
