@@ -118,15 +118,20 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 "time": config.fmt_ist(sel["created_ms"]), "name": sel["name"],
                 "register_no": sel["register_no"], "email": sel["email"]}
 
-    def free_roster(engine_):
+    def free_roster(engine_or_conn):
         from db import selections, students
-        with engine_.connect() as conn:
+        from sqlalchemy.engine import Connection
+        def _get(conn):
             rows = conn.execute(
                 select(students.c.register_no, students.c.name)
                 .where(~students.c.register_no.in_(select(selections.c.register_no)))
                 .order_by(students.c.register_no)
             ).all()
-        return [{"register_no": r[0], "name": r[1]} for r in rows]
+            return [{"register_no": r[0], "name": r[1]} for r in rows]
+        if isinstance(engine_or_conn, Connection):
+            return _get(engine_or_conn)
+        with engine_or_conn.connect() as conn:
+            return _get(conn)
 
     def get_initial_state(include_attempt=False):
         t = now()
@@ -163,21 +168,21 @@ def create_app(settings=None, engine=None, sheets_client=None):
             engine_ = get_engine()
             with engine_.connect() as conn:
                 existing = allocation.get_selection(conn, email=ident["email"])
-            if existing:
-                state_data["selection"] = sel_json(allocation.selection_view(existing))
-            else:
-                if ident["register_no"] is None:
-                    state_data["roster"] = free_roster(engine_)
-                if include_attempt and is_open:
-                    st_res = allocation.start_attempt(engine_, ident["email"], t, settings.timer_seconds * 1000,
-                                                   settings.max_attempts)
-                    if st_res.ok:
-                        state_data["attempt"] = {
-                            "started_ms": st_res.extra["started_ms"],
-                            "expires_ms": st_res.extra["expires_ms"],
-                            "timer_seconds": settings.timer_seconds,
-                            "server_now": t,
-                        }
+                if existing:
+                    state_data["selection"] = sel_json(allocation.selection_view(existing))
+                else:
+                    if ident["register_no"] is None:
+                        state_data["roster"] = free_roster(conn)
+                    if include_attempt and is_open:
+                        st_res = allocation.start_attempt(conn, ident["email"], t, settings.timer_seconds * 1000,
+                                                       settings.max_attempts)
+                        if st_res.ok:
+                            state_data["attempt"] = {
+                                "started_ms": st_res.extra["started_ms"],
+                                "expires_ms": st_res.extra["expires_ms"],
+                                "timer_seconds": settings.timer_seconds,
+                                "server_now": t,
+                            }
         except Exception:
             pass
         return state_data

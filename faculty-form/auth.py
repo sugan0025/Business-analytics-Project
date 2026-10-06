@@ -14,14 +14,24 @@ class AuthError(Exception):
         self.status = status
 
 
+_google_request = None
+
+
+def _get_google_request():
+    global _google_request
+    if _google_request is None:
+        from google.auth.transport import requests as g_requests
+        _google_request = g_requests.Request()
+    return _google_request
+
+
 def verify_google_token(credential: str, client_id: str) -> dict:
     """Verify a Google ID token (signature, audience, expiry). Returns the claims."""
     if not client_id:
         raise AuthError("not_configured", "Google Sign-In is not configured on the server.", 500)
-    from google.auth.transport import requests as g_requests
     from google.oauth2 import id_token
     try:
-        return id_token.verify_oauth2_token(credential, g_requests.Request(), client_id)
+        return id_token.verify_oauth2_token(credential, _get_google_request(), client_id)
     except ValueError:
         raise AuthError("invalid_token", "Sign-in failed. Please try again.", 401)
 

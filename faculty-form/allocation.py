@@ -87,9 +87,11 @@ def availability(engine):
 
 # ---- attempts (the 60-second timer) -------------------------------------------
 
-def start_attempt(engine, email, now_ms, timer_ms, max_attempts):
+def start_attempt(engine_or_conn, email, now_ms, timer_ms, max_attempts):
     """Open (or resume) a timed attempt. Reloading the page never resets the clock."""
-    with engine.connect() as conn:
+    from sqlalchemy.engine import Connection
+
+    def _run(conn):
         if get_selection(conn, email=email):
             return _fail("already_submitted")
         open_row = conn.execute(
@@ -100,13 +102,18 @@ def start_attempt(engine, email, now_ms, timer_ms, max_attempts):
             return Result(True, extra={"started_ms": open_row["started_ms"],
                                        "expires_ms": open_row["started_ms"] + timer_ms})
         used = conn.execute(select(func.count()).select_from(attempts).where(attempts.c.email == email)).scalar()
-    if used >= max_attempts:
-        return _fail("too_many_attempts")
-    with engine.begin() as conn:
+        if used >= max_attempts:
+            return _fail("too_many_attempts")
         conn.execute(update(attempts).where(attempts.c.email == email, attempts.c.status == "open")
                      .values(status="expired"))
         conn.execute(insert(attempts).values(email=email, started_ms=now_ms, status="open"))
-    return Result(True, extra={"started_ms": now_ms, "expires_ms": now_ms + timer_ms})
+        conn.commit()
+        return Result(True, extra={"started_ms": now_ms, "expires_ms": now_ms + timer_ms})
+
+    if isinstance(engine_or_conn, Connection):
+        return _run(engine_or_conn)
+    with engine_or_conn.connect() as conn:
+        return _run(conn)
 
 
 # ---- the seat claim ---------------------------------------------------------------
