@@ -73,6 +73,24 @@ def create_app(settings=None, engine=None, sheets_client=None):
         else:
             _do_sync()
 
+    _avail_cache = {"data": None, "time": 0.0, "etag": ""}
+
+    def get_cached_availability(engine_, max_age=1.0):
+        t_now = time.time()
+        if _avail_cache["data"] is not None and (t_now - _avail_cache["time"] < max_age):
+            return _avail_cache["data"], _avail_cache["etag"]
+        data = allocation.availability(engine_)
+        import hashlib
+        etag = hashlib.md5(str([(f["id"], f["remaining"]) for f in data]).encode()).hexdigest()
+        _avail_cache["data"] = data
+        _avail_cache["time"] = t_now
+        _avail_cache["etag"] = etag
+        return data, etag
+
+    def invalidate_availability_cache():
+        _avail_cache["data"] = None
+        _avail_cache["time"] = 0.0
+
     def now():
         return config.now_ms()
 
@@ -107,6 +125,49 @@ def create_app(settings=None, engine=None, sheets_client=None):
             ).all()
         return [{"register_no": r[0], "name": r[1]} for r in rows]
 
+    def get_initial_state():
+        t = now()
+        is_open, reason, opens = config.form_state(settings, t)
+        state_data = {
+            "is_open": is_open,
+            "reason": reason,
+            "opens_at_ms": opens,
+            "opens_at": config.fmt_ist(opens) if opens else None,
+            "server_now": t,
+            "signed_in": False,
+        }
+        try:
+            fac_data, etag = get_cached_availability(get_engine(), max_age=1.0)
+            state_data["faculty"] = fac_data
+            state_data["etag"] = etag
+        except Exception:
+            state_data["faculty"] = []
+            state_data["etag"] = ""
+
+        ident = session.get("identity")
+        if not ident:
+            return state_data
+
+        state_data.update(
+            signed_in=True,
+            email=ident["email"],
+            name=ident["name"],
+            register_no=ident["register_no"],
+            mode=ident.get("mode", "strict"),
+            selection=None,
+        )
+        try:
+            engine_ = get_engine()
+            with engine_.connect() as conn:
+                existing = allocation.get_selection(conn, email=ident["email"])
+            if existing:
+                state_data["selection"] = sel_json(allocation.selection_view(existing))
+            elif ident["register_no"] is None:
+                state_data["roster"] = free_roster(engine_)
+        except Exception:
+            pass
+        return state_data
+
     # ---- pages --------------------------------------------------------------------
     @app.get("/")
     def index():
@@ -118,7 +179,8 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "devLogin": settings.dev_login,
             "domain": settings.email_domain,
         }
-        return render_template("index.html", cfg=cfg, title=settings.form_title)
+        initial_state = get_initial_state()
+        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title)
 
     @app.get("/healthz")
     def healthz():
@@ -191,7 +253,16 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if t_now - _last_sync_time[0] > 10.0:
             _last_sync_time[0] = t_now
             trigger_sheet_sync(get_engine(), get_sheets(), background=True)
-        return jsonify({"ok": True, "faculty": allocation.availability(get_engine()), "server_now": now()})
+        data, etag = get_cached_availability(get_engine(), max_age=1.0)
+        client_etag = request.headers.get("If-None-Match")
+        if client_etag and client_etag == etag:
+            from flask import Response
+            resp = Response(status=304)
+            resp.headers["ETag"] = etag
+            return resp
+        resp = jsonify({"ok": True, "faculty": data, "server_now": now()})
+        resp.headers["ETag"] = etag
+        return resp
 
     # ---- timer ------------------------------------------------------------------------
     @app.post("/api/start")
@@ -234,8 +305,12 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if not res.ok:
             extra = {"selection": sel_json(res.selection)} if res.selection else {}
             if res.code == "faculty_full":
-                extra["faculty"] = allocation.availability(engine_)
+                invalidate_availability_cache()
+                extra["faculty"] = get_cached_availability(engine_, max_age=0.0)[0]
             return err(res.code, res.message, STATUS_FOR_CODE.get(res.code, 400), **extra)
+
+        # Invalidate cache so other students see the updated seat count immediately
+        invalidate_availability_cache()
 
         # Seat is committed. Mirror to the sheet asynchronously; a failure here never undoes the seat.
         trigger_sheet_sync(engine_, get_sheets(), background=True)
@@ -273,7 +348,9 @@ def create_app(settings=None, engine=None, sheets_client=None):
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        if request.path.startswith("/api/") or request.path == "/":
+        if request.path.endswith(".css") or request.path.endswith(".js"):
+            resp.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400"
+        elif request.path.startswith("/api/") or request.path == "/":
             resp.headers["Cache-Control"] = "no-store"
         return resp
 

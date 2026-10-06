@@ -165,8 +165,9 @@ def ensure_ready(engine):
     with _ready_lock:
         if key in _ready_for:
             return
-        init_schema(engine)
-        seed(engine)
+        if not on_vercel():
+            init_schema(engine)
+            seed(engine)
         _ready_for.add(key)
 
 

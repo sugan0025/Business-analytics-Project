@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ title }}</title>
   <meta name="robots" content="noindex" />
+  <link rel="dns-prefetch" href="https://accounts.google.com" />
+  <link rel="preconnect" href="https://accounts.google.com" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -26,7 +28,10 @@
     <span id="toastMsg"></span>
   </div>
 
-  <script>window.APP = {{ cfg|tojson }};</script>
+  <script>
+    window.APP = {{ cfg|tojson }};
+    window.INITIAL_STATE = {{ (initial_state or {})|tojson }};
+  </script>
   <script src="/form.js"></script>
 </body>
 </html>
