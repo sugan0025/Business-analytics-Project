@@ -1,6 +1,7 @@
 import pytest
 
 import auth
+import db
 from app import create_app
 from auth import AuthError
 
@@ -51,6 +52,9 @@ def test_strict_mode_maps_email_to_one_register_number(settings, engine, student
 
 
 def test_pattern_mode_until_emails_are_loaded(settings, engine):
+    from sqlalchemy import update
+    with engine.begin() as conn:
+        conn.execute(update(db.students).values(email=None))
     ident = auth.identify(engine, "anyone.mb25@bitsathy.ac.in", "Any One", settings)
     assert ident["mode"] == "pattern" and ident["register_no"] is None
 
@@ -100,6 +104,9 @@ def test_body_cannot_name_someone_else(settings, engine, students, sheets, clock
 
 
 def test_pattern_mode_student_must_pick_a_free_register_number(settings, engine, sheets, clock):
+    from sqlalchemy import update
+    with engine.begin() as conn:
+        conn.execute(update(db.students).values(email=None))
     c = make_client(settings, engine, sheets, {"t": claims("newbie.mb25@bitsathy.ac.in", name="Newbie")})
     c.post("/api/auth/google", json={"credential": "t"})
     me = c.get("/api/me").get_json()

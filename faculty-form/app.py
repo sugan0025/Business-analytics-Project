@@ -56,6 +56,23 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 state["sheets"] = None
         return state["sheets"]
 
+    _last_sync_time = [0.0]
+
+    def trigger_sheet_sync(engine_, sheets, background=True):
+        if sheets is None:
+            return
+        def _do_sync():
+            try:
+                sheets_sync.sync_pending(engine_, sheets)
+            except Exception:
+                log.exception("Sheet sync error")
+
+        if background and not app.testing:
+            import threading
+            threading.Thread(target=_do_sync, daemon=True).start()
+        else:
+            _do_sync()
+
     def now():
         return config.now_ms()
 
@@ -170,6 +187,10 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     @app.get("/api/availability")
     def availability():
+        t_now = time.time()
+        if t_now - _last_sync_time[0] > 10.0:
+            _last_sync_time[0] = t_now
+            trigger_sheet_sync(get_engine(), get_sheets(), background=True)
         return jsonify({"ok": True, "faculty": allocation.availability(get_engine()), "server_now": now()})
 
     # ---- timer ------------------------------------------------------------------------
@@ -216,11 +237,8 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 extra["faculty"] = allocation.availability(engine_)
             return err(res.code, res.message, STATUS_FOR_CODE.get(res.code, 400), **extra)
 
-        # Seat is committed. Mirror to the sheet; a failure here never undoes the seat.
-        try:
-            sheets_sync.sync_pending(engine_, get_sheets())
-        except Exception:
-            log.exception("Sheet sync failed (will retry)")
+        # Seat is committed. Mirror to the sheet asynchronously; a failure here never undoes the seat.
+        trigger_sheet_sync(engine_, get_sheets(), background=True)
         return jsonify({"ok": True, "already": res.already, "selection": sel_json(res.selection)})
 
     @app.post("/api/sync")
