@@ -208,16 +208,33 @@
   }
 
   async function onCredential(resp) {
-    root.innerHTML = titleCard() + `
-      <div class="card" style="text-align: center; padding: 48px 24px;">
-        <div class="spinner" style="margin: 0 auto 16px;"></div>
-        <div class="q-title" style="margin-bottom: 6px;">Signing in…</div>
-        <div class="hint" style="color: var(--text-secondary);">Verifying your college account and loading faculty seats…</div>
-      </div>`;
+    const box = $('#signinError');
+    if (box) box.classList.add('hidden');
+    const gbtn = $('#gbtn');
+    if (gbtn) {
+      gbtn.style.opacity = '0.5';
+      gbtn.style.pointerEvents = 'none';
+    }
+
+    const signinBox = $('.signin-box');
+    let loadingEl = $('#signinLoading');
+    if (!loadingEl && signinBox) {
+      loadingEl = document.createElement('div');
+      loadingEl.id = 'signinLoading';
+      loadingEl.className = 'hint';
+      loadingEl.style.cssText = 'color: var(--primary); font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px;';
+      loadingEl.innerHTML = '<span class="spinner-sm"></span> Signing in…';
+      signinBox.appendChild(loadingEl);
+    }
 
     const r = await api('POST', '/api/auth/google', { credential: resp.credential });
     if (!r.ok) {
-      return showSignin(r.data.message || 'Sign-in failed. Please try again.');
+      if (loadingEl) loadingEl.remove();
+      if (gbtn) {
+        gbtn.style.opacity = '1';
+        gbtn.style.pointerEvents = '';
+      }
+      return signinError(r.data.message || 'Sign-in failed. Please try again.');
     }
     if (r.data && r.data.state) {
       return applyStateAndRender(r.data.state);
