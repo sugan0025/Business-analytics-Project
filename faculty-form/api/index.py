@@ -19,13 +19,22 @@ class VercelPathMiddleware:
         if path in ("/api/index", "/api/index.py", "/api"):
             orig = (
                 environ.get("HTTP_X_MATCHED_PATH")
+                or environ.get("HTTP_X_NOW_ROUTE_MATCHES")
                 or environ.get("HTTP_X_ORIGINAL_URI")
                 or environ.get("HTTP_X_FORWARDED_URI")
-                or "/"
+                or environ.get("RAW_URI")
+                or environ.get("REQUEST_URI")
             )
-            orig_path = orig.split("?")[0]
-            if orig_path:
-                environ["PATH_INFO"] = orig_path
+            # Check if passed via query string __path
+            if not orig and "__path=" in environ.get("QUERY_STRING", ""):
+                import urllib.parse
+                qs = urllib.parse.parse_qs(environ.get("QUERY_STRING", ""))
+                if "__path" in qs:
+                    orig = "/" + qs["__path"][0].lstrip("/")
+            if orig:
+                orig_path = orig.split("?")[0]
+                if orig_path:
+                    environ["PATH_INFO"] = orig_path
         return self.wsgi_app(environ, start_response)
 
 

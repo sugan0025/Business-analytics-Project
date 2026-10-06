@@ -104,6 +104,10 @@ def create_app(settings=None, engine=None, sheets_client=None):
         }
         return render_template("index.html", cfg=cfg, title=settings.form_title)
 
+    @app.get("/debug-env")
+    def debug_env():
+        return jsonify({k: str(v) for k, v in request.environ.items() if k.startswith("HTTP_") or k in ("PATH_INFO", "REQUEST_URI", "RAW_URI")})
+
     @app.get("/healthz")
     def healthz():
         info = {"ok": True, "google_signin_configured": bool(settings.google_client_id),
