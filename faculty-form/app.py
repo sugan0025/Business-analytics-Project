@@ -103,6 +103,18 @@ def create_app(settings=None, engine=None, sheets_client=None):
         }
         return render_template("index.html", cfg=cfg, title=settings.form_title)
 
+    @app.get("/api/index")
+    def vercel_entry():
+        if request.args.get("debug") == "1":
+            return jsonify({
+                "path": request.path,
+                "headers": dict(request.headers),
+                "environ_keys": [k for k in request.environ.keys() if "MATCH" in k or "PATH" in k or "URI" in k or "ROUTE" in k],
+                "x_matched_path": request.headers.get("x-matched-path"),
+                "HTTP_X_MATCHED_PATH": request.environ.get("HTTP_X_MATCHED_PATH"),
+            })
+        return index()
+
     @app.get("/healthz")
     def healthz():
         info = {"ok": True, "google_signin_configured": bool(settings.google_client_id),
