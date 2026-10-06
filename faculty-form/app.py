@@ -92,11 +92,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     # ---- pages --------------------------------------------------------------------
     @app.get("/")
-    @app.get("/api/index")
     def index():
-        if request.args.get("debug") == "all":
-            safe_env = {k: str(v) for k, v in request.environ.items() if not k.startswith("HTTP_X_VERCEL_OIDC") and k not in ("wsgi.input", "wsgi.errors")}
-            return jsonify({"keys": list(request.environ.keys()), "env": safe_env})
         cfg = {
             "clientId": settings.google_client_id,
             "title": settings.form_title,
@@ -263,6 +259,24 @@ def create_app(settings=None, engine=None, sheets_client=None):
             resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    class VercelPathMiddleware:
+        def __init__(self, wsgi):
+            self.wsgi = wsgi
+        def __call__(self, environ, start_response):
+            qs_str = environ.get("QUERY_STRING", "")
+            if "path=" in qs_str:
+                import urllib.parse
+                qs = urllib.parse.parse_qs(qs_str)
+                if "path" in qs:
+                    val = urllib.parse.unquote(qs["path"][0]).strip()
+                    environ["PATH_INFO"] = "/" + val.lstrip("/") if val else "/"
+                    new_qs = {k: v for k, v in qs.items() if k != "path"}
+                    environ["QUERY_STRING"] = urllib.parse.urlencode(new_qs, doseq=True)
+            elif environ.get("PATH_INFO") in ("/api/index", "/api/index/"):
+                environ["PATH_INFO"] = "/"
+            return self.wsgi(environ, start_response)
+
+    app.wsgi_app = VercelPathMiddleware(app.wsgi_app)
     return app
 
 
