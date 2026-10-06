@@ -128,7 +128,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             ).all()
         return [{"register_no": r[0], "name": r[1]} for r in rows]
 
-    def get_initial_state():
+    def get_initial_state(include_attempt=False):
         t = now()
         is_open, reason, opens = config.form_state(settings, t)
         state_data = {
@@ -165,8 +165,19 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 existing = allocation.get_selection(conn, email=ident["email"])
             if existing:
                 state_data["selection"] = sel_json(allocation.selection_view(existing))
-            elif ident["register_no"] is None:
-                state_data["roster"] = free_roster(engine_)
+            else:
+                if ident["register_no"] is None:
+                    state_data["roster"] = free_roster(engine_)
+                if include_attempt and is_open:
+                    st_res = allocation.start_attempt(engine_, ident["email"], t, settings.timer_seconds * 1000,
+                                                   settings.max_attempts)
+                    if st_res.ok:
+                        state_data["attempt"] = {
+                            "started_ms": st_res.extra["started_ms"],
+                            "expires_ms": st_res.extra["expires_ms"],
+                            "timer_seconds": settings.timer_seconds,
+                            "server_now": t,
+                        }
         except Exception:
             pass
         return state_data
@@ -182,7 +193,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "devLogin": settings.dev_login,
             "domain": settings.email_domain,
         }
-        initial_state = get_initial_state()
+        initial_state = get_initial_state(include_attempt=True)
         return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title)
 
     @app.get("/healthz")
@@ -213,7 +224,8 @@ def create_app(settings=None, engine=None, sheets_client=None):
             return err("bad_request", "Missing credential.", 400)
         identity = auth.identity_from_google(get_engine(), credential, settings)
         start_session(identity)
-        return jsonify({"ok": True})
+        initial_state = get_initial_state(include_attempt=True)
+        return jsonify({"ok": True, "state": initial_state})
 
     @app.post("/api/dev-login")
     def dev_login():
@@ -222,7 +234,8 @@ def create_app(settings=None, engine=None, sheets_client=None):
         data = body_json()
         identity = auth.identify(get_engine(), data.get("email", ""), data.get("name", ""), settings)
         start_session(identity)
-        return jsonify({"ok": True})
+        initial_state = get_initial_state(include_attempt=True)
+        return jsonify({"ok": True, "state": initial_state})
 
     @app.post("/api/logout")
     def logout():
@@ -252,10 +265,6 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     @app.get("/api/availability")
     def availability():
-        t_now = time.time()
-        if t_now - _last_sync_time[0] > 10.0:
-            _last_sync_time[0] = t_now
-            trigger_sheet_sync(get_engine(), get_sheets(), background=True)
         data, etag = get_cached_availability(get_engine(), max_age=1.0)
         client_etag = request.headers.get("If-None-Match")
         if client_etag and client_etag == etag:

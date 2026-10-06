@@ -53,13 +53,13 @@ def identify(engine, email: str, display_name: str, settings) -> dict:
             "wrong_domain",
             f"Please sign in with your college email (name{settings.email_local_suffix}@{settings.email_domain}).",
         )
+    with engine.connect() as conn:
+        row = conn.execute(select(students).where(students.c.email == email)).mappings().first()
+    if row is not None:
+        return {"email": email, "name": row["name"], "register_no": row["register_no"], "mode": "strict"}
     mode = roster_mode(engine)
     if mode == "strict":
-        with engine.connect() as conn:
-            row = conn.execute(select(students).where(students.c.email == email)).mappings().first()
-        if row is None:
-            raise AuthError("not_on_roster", "This email is not on the class list. Contact your coordinator.")
-        return {"email": email, "name": row["name"], "register_no": row["register_no"], "mode": mode}
+        raise AuthError("not_on_roster", "This email is not on the class list. Contact your coordinator.")
     return {"email": email, "name": display_name or email.split("@")[0], "register_no": None, "mode": mode}
 
 

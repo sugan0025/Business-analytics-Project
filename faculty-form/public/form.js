@@ -122,6 +122,21 @@
     $('#retryBtn').addEventListener('click', () => { window.INITIAL_STATE = null; boot(); });
   }
 
+  function applyStateAndRender(state) {
+    stopTimers();
+    expired = false; submitting = false; selectedId = null;
+    me = state;
+    offset = me.server_now - Date.now();
+    if (me.faculty && me.faculty.length) {
+      faculty = me.faculty;
+      if (me.etag) currentEtag = me.etag;
+    }
+    if (!me.signed_in) return showSignin();
+    if (me.selection) return showDone(me.selection, false);
+    if (!me.is_open) return showClosed();
+    return showForm(me.attempt);
+  }
+
   // ---------- boot ----------
   async function boot() {
     stopTimers();
@@ -130,27 +145,13 @@
     // Fast-path: use inlined server state if present
     const init = window.INITIAL_STATE;
     if (init && typeof init === 'object' && init.server_now) {
-      me = init;
-      offset = me.server_now - Date.now();
-      if (me.faculty && me.faculty.length) {
-        faculty = me.faculty;
-        if (me.etag) currentEtag = me.etag;
-      }
       window.INITIAL_STATE = null; // consume once
-      if (!me.signed_in) return showSignin();
-      if (me.selection) return showDone(me.selection, false);
-      if (!me.is_open) return showClosed();
-      return showForm();
+      return applyStateAndRender(init);
     }
 
     const r = await api('GET', '/api/me');
     if (!r.ok) return fatal(r.data.message || 'Could not load the form. Please refresh.');
-    me = r.data;
-    offset = me.server_now - Date.now();
-    if (!me.signed_in) return showSignin();
-    if (me.selection) return showDone(me.selection, false);
-    if (!me.is_open) return showClosed();
-    return showForm();
+    return applyStateAndRender(r.data);
   }
 
   // ---------- sign in ----------
@@ -176,7 +177,9 @@
     if (APP.devLogin) {
       $('#devBtn').addEventListener('click', async () => {
         const r = await api('POST', '/api/dev-login', { email: $('#devEmail').value });
-        r.ok ? boot() : signinError(r.data.message);
+        if (!r.ok) return signinError(r.data.message);
+        if (r.data && r.data.state) return applyStateAndRender(r.data.state);
+        boot();
       });
     }
     if (!APP.clientId) {
@@ -205,9 +208,20 @@
   }
 
   async function onCredential(resp) {
+    const box = $('#signinError');
+    if (box) box.classList.add('hidden');
+    const gbtn = $('#gbtn');
+    if (gbtn) gbtn.style.opacity = '0.5';
+
     const r = await api('POST', '/api/auth/google', { credential: resp.credential });
-    if (r.ok) return boot();
-    signinError(r.data.message || 'Sign-in failed. Please try again.');
+    if (!r.ok) {
+      if (gbtn) gbtn.style.opacity = '1';
+      return signinError(r.data.message || 'Sign-in failed. Please try again.');
+    }
+    if (r.data && r.data.state) {
+      return applyStateAndRender(r.data.state);
+    }
+    boot();
   }
 
   // ---------- closed / not yet open ----------
@@ -239,7 +253,7 @@
   }
 
   // ---------- the form ----------
-  async function showForm() {
+  async function showForm(preloadedAttempt) {
     stopTimers();
     const strict = me.register_no != null;
     const regCard = strict
@@ -311,6 +325,12 @@
 
     if (faculty && faculty.length) {
       renderOptions();
+    }
+
+    if (preloadedAttempt) {
+      beginAttempt(preloadedAttempt);
+      pollTimer = setInterval(refreshAvailability, 2500);
+      return;
     }
 
     // Parallel start and availability conditional check
