@@ -58,7 +58,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     _last_sync_time = [0.0]
 
-    def trigger_sheet_sync(engine_, sheets, background=True):
+    def trigger_sheet_sync(engine_, sheets, background=True, timeout=0.8):
         if sheets is None:
             return
         def _do_sync():
@@ -69,7 +69,10 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
         if background and not app.testing:
             import threading
-            threading.Thread(target=_do_sync, daemon=True).start()
+            t = threading.Thread(target=_do_sync, daemon=True)
+            t.start()
+            if timeout and config.on_vercel():
+                t.join(timeout=timeout)
         else:
             _do_sync()
 

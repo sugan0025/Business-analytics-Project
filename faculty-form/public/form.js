@@ -292,12 +292,20 @@
 
     const searchInput = $('#facSearch');
     if (searchInput) {
-      searchInput.addEventListener('input', () => {
+      const applyFilter = () => {
         const q = searchInput.value.trim().toLowerCase();
         root.querySelectorAll('#options .option').forEach(el => {
           const name = (el.querySelector('.name') || {}).textContent || '';
           el.style.display = (!q || name.toLowerCase().includes(q)) ? '' : 'none';
         });
+      };
+      searchInput.addEventListener('input', applyFilter);
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          searchInput.value = '';
+          applyFilter();
+          searchInput.blur();
+        }
       });
     }
 
@@ -305,17 +313,19 @@
       renderOptions();
     }
 
-    // Parallel start and availability check
+    // Parallel start and availability conditional check
     const stPromise = api('POST', '/api/start');
-    const avPromise = (!faculty || !faculty.length) ? api('GET', '/api/availability') : null;
+    const avPromise = api('GET', '/api/availability', undefined, currentEtag ? { 'If-None-Match': currentEtag } : {});
 
-    const [st, av] = await Promise.all([stPromise, avPromise ? avPromise : Promise.resolve(null)]);
+    const [st, av] = await Promise.all([stPromise, avPromise]);
     if (!st.ok) return handleStartError(st);
-    if (av) {
-      if (!av.ok) return fatal(av.data.message || 'Could not load faculty availability.');
-      faculty = av.data.faculty;
-      if (av.etag) currentEtag = av.etag;
-      renderOptions();
+    if (av && !av.notModified) {
+      if (!av.ok && (!faculty || !faculty.length)) return fatal(av.data.message || 'Could not load faculty availability.');
+      if (av.ok && av.data.faculty) {
+        faculty = av.data.faculty;
+        if (av.etag) currentEtag = av.etag;
+        renderOptions();
+      }
     }
     beginAttempt(st.data);
     pollTimer = setInterval(refreshAvailability, 2500);
@@ -385,7 +395,7 @@
       <div class="option ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}" role="radio" aria-checked="${selectedId === f.id}">
         <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
         <div class="option-main">
-          <span class="key-badge">${idx + 1}</span>
+          <span class="key-badge" title="Shortcut key: ${idx === 9 ? '0' : idx + 1}">${idx === 9 ? '0' : idx + 1}</span>
           <span class="radio"></span>
           <span class="name">${esc(f.name)}</span>
           <span class="seats-badge"></span>
@@ -578,14 +588,17 @@
     bindSwitch();
   }
 
-  // Keyboard navigation (1-9)
+  // Keyboard navigation (1-9 and 0 for #10)
   document.addEventListener('keydown', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    let idx = -1;
     if (e.key >= '1' && e.key <= '9') {
-      const idx = Number(e.key) - 1;
-      if (faculty && faculty[idx] && faculty[idx].remaining > 0) {
-        selectFaculty(faculty[idx].id);
-      }
+      idx = Number(e.key) - 1;
+    } else if (e.key === '0') {
+      idx = 9;
+    }
+    if (idx >= 0 && faculty && faculty[idx] && faculty[idx].remaining > 0) {
+      selectFaculty(faculty[idx].id);
     }
   });
 
