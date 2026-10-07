@@ -682,6 +682,39 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
         return jsonify({"ok": True, "message": "Student record saved successfully."})
 
+    @app.post("/api/admin/database/students/reset")
+    def admin_reset_student_selection():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        data = body_json()
+        reg_no = str(data.get("register_no") or "").strip().upper()
+        if not reg_no:
+            return err("invalid_data", "Register number is required.", 400)
+
+        engine_ = get_engine()
+        sheets = get_sheets()
+
+        removed = allocation.reset_student(engine_, reg_no)
+        invalidate_availability_cache()
+
+        if sheets:
+            try:
+                sheets_sync.rewrite_all_selections(engine_, sheets)
+            except Exception:
+                pass
+
+        if removed:
+            return jsonify({
+                "ok": True,
+                "message": f"Guide choice reset for {removed['student_name']} ({reg_no}). Student remains on roster.",
+                "reset": removed,
+            })
+        return jsonify({
+            "ok": True,
+            "message": f"Student {reg_no} had no active guide choice. Session attempts cleared.",
+        })
+
     @app.post("/api/admin/database/students/delete")
     def admin_delete_student():
         ident = current_identity()

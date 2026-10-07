@@ -970,7 +970,10 @@
                   </td>
                   <td style="text-align: center; white-space: nowrap;">
                     <button class="icon-btn edit-student-btn" data-reg="${esc(s.register_no)}" title="Edit Student">✏️</button>
-                    <button class="icon-btn icon-btn-delete delete-student-btn" data-reg="${esc(s.register_no)}" data-name="${esc(s.name)}" title="Delete Student">🗑️</button>
+                    ${s.allocation ? `
+                      <button class="icon-btn reset-student-btn" data-reg="${esc(s.register_no)}" title="Reset Guide Choice (Keep on roster)">🔄</button>
+                    ` : ''}
+                    <button class="icon-btn icon-btn-delete delete-student-btn" data-reg="${esc(s.register_no)}" title="Manage / Delete Student">🗑️</button>
                   </td>
                 </tr>
               `).join('')}
@@ -990,11 +993,19 @@
         });
       });
 
+      wrapper.querySelectorAll('.reset-student-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reg = btn.dataset.reg;
+          const stu = dbStudentsCache.find(x => x.register_no === reg);
+          if (stu) confirmResetStudentChoice(stu);
+        });
+      });
+
       wrapper.querySelectorAll('.delete-student-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           const reg = btn.dataset.reg;
-          const name = btn.dataset.name;
-          confirmDeleteStudent(reg, name);
+          const stu = dbStudentsCache.find(x => x.register_no === reg);
+          if (stu) confirmDeleteStudent(stu);
         });
       });
     } else {
@@ -1144,26 +1155,34 @@
     });
   }
 
-  function confirmDeleteStudent(reg, name) {
+  function confirmResetStudentChoice(stu) {
+    const reg = stu.register_no;
+    const name = stu.name;
+    const facName = stu.allocation ? stu.allocation.faculty_name : 'their selected guide';
+
     showModal({
-      title: `🗑️ Delete Student`,
+      title: `🔄 Reset Guide Selection`,
       bodyHtml: `
-        <p style="margin: 0; color: var(--text-primary); line-height: 1.5;">
-          Are you sure you want to remove <b>${esc(name)} (${esc(reg)})</b> from the database?
+        <p style="margin: 0; color: var(--text-primary); line-height: 1.5; font-size: 14px;">
+          Reset guide choice for <b>${esc(name)} (${esc(reg)})</b>?
         </p>
-        <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
-          If this student has already chosen a guide, their seat will be freed and their selection record will be removed.
+        <div style="background: #f8f9fa; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 12px;">
+          <div style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Allocated Guide to Free</div>
+          <div style="font-weight: 600; color: var(--primary); font-size: 14px; margin-top: 3px;">✓ ${esc(facName)}</div>
+        </div>
+        <div class="modal-note" style="border-left-color: var(--primary); margin-top: 12px;">
+          This frees 1 seat with ${esc(facName)}. <b>${esc(name)} will remain on the class roster</b> and can log back in with their college account to choose again.
         </div>
       `,
-      confirmText: 'Delete Student',
+      confirmText: 'Reset Choice',
       confirmBtnClass: 'btn-primary',
       onConfirm: async () => {
-        const res = await api('POST', '/api/admin/database/students/delete', { register_no: reg });
+        const res = await api('POST', '/api/admin/database/students/reset', { register_no: reg });
         if (!res.ok) {
-          toast(res.data.message || 'Failed to delete student.');
+          toast(res.data.message || 'Failed to reset selection.');
           return false;
         }
-        toast(`Student ${reg} deleted.`);
+        toast(`Selection reset for ${name}. Student can now choose again.`);
         dbStudentsCache = null;
         await loadDatabaseData();
         const rMe = await api('GET', '/api/director/overview');
@@ -1171,6 +1190,132 @@
         return true;
       }
     });
+  }
+
+  function confirmDeleteStudent(stu) {
+    const reg = stu.register_no;
+    const name = stu.name;
+    const alloc = stu.allocation;
+
+    if (alloc) {
+      const modal = showModal({
+        title: `⚙️ Manage Student Allocation`,
+        bodyHtml: `
+          <p style="margin: 0; color: var(--text-primary); font-size: 13.5px; line-height: 1.5;">
+            Action for <b>${esc(name)} (${esc(reg)})</b>:
+          </p>
+          <div style="background: #f8f9fa; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px;">
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Currently Allocated Guide</div>
+            <div style="font-weight: 600; color: var(--primary); font-size: 13.5px; margin-top: 2px;">✓ ${esc(alloc.faculty_name)}</div>
+            <div style="font-size: 11.5px; color: var(--text-hint); margin-top: 1px;">Selected at ${alloc.time} (Seq #${alloc.seq_id})</div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;">
+            <!-- Option 1: Reset Selection Only -->
+            <div style="border: 1.5px solid #d1c4e9; background: #faf8fd; border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: var(--primary);">🔄 Reset Selection Only</div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35;">
+                  Frees this seat so the student can re-choose. <b>Keeps student on class roster.</b>
+                </div>
+              </div>
+              <button class="btn-primary" type="button" id="btnOptResetOnly" style="white-space: nowrap; padding: 7px 12px; font-size: 12px;">
+                Reset Selection
+              </button>
+            </div>
+
+            <!-- Option 2: Delete from Class Roster -->
+            <div style="border: 1.5px solid #fad2cf; background: #fef7f6; border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: var(--error);">🗑️ Delete from Roster</div>
+                <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; line-height: 1.35;">
+                  Permanently deletes student from the roster and frees their allocated seat.
+                </div>
+              </div>
+              <button class="btn-text" type="button" id="btnOptDeleteRoster" style="white-space: nowrap; padding: 7px 12px; font-size: 12px; color: var(--error); border: 1px solid #fad2cf; border-radius: 6px;">
+                Delete Student
+              </button>
+            </div>
+          </div>
+        `,
+        confirmText: 'Cancel',
+        confirmBtnClass: 'btn-text',
+        onConfirm: async () => true,
+      });
+
+      if (modal) {
+        const footer = modal.querySelector('.modal-footer');
+        if (footer) footer.style.display = 'none';
+
+        const resetBtn = modal.querySelector('#btnOptResetOnly');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', async () => {
+            resetBtn.disabled = true;
+            resetBtn.textContent = 'Resetting…';
+            const res = await api('POST', '/api/admin/database/students/reset', { register_no: reg });
+            if (!res.ok) {
+              resetBtn.disabled = false;
+              resetBtn.textContent = 'Reset Selection';
+              return toast(res.data.message || 'Failed to reset selection.');
+            }
+            toast(`Selection reset for ${name}. Student can now choose again.`);
+            modal.remove();
+            dbStudentsCache = null;
+            await loadDatabaseData();
+            const rMe = await api('GET', '/api/director/overview');
+            if (rMe.ok) me.master_overview = rMe.data.master_overview;
+          });
+        }
+
+        const deleteBtn = modal.querySelector('#btnOptDeleteRoster');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', async () => {
+            if (!confirm(`Are you sure you want to completely remove ${name} (${reg}) from the class roster?`)) {
+              return;
+            }
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = 'Deleting…';
+            const res = await api('POST', '/api/admin/database/students/delete', { register_no: reg });
+            if (!res.ok) {
+              deleteBtn.disabled = false;
+              deleteBtn.textContent = 'Delete Student';
+              return toast(res.data.message || 'Failed to delete student.');
+            }
+            toast(`Student ${reg} removed from class roster.`);
+            modal.remove();
+            dbStudentsCache = null;
+            await loadDatabaseData();
+            const rMe = await api('GET', '/api/director/overview');
+            if (rMe.ok) me.master_overview = rMe.data.master_overview;
+          });
+        }
+      }
+    } else {
+      showModal({
+        title: `🗑️ Delete Student from Roster`,
+        bodyHtml: `
+          <p style="margin: 0; color: var(--text-primary); line-height: 1.5;">
+            Are you sure you want to remove <b>${esc(name)} (${esc(reg)})</b> from the class roster?
+          </p>
+          <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
+            This student has not yet selected a guide. Removing them will delete their record from the roster database.
+          </div>
+        `,
+        confirmText: 'Delete Student',
+        confirmBtnClass: 'btn-primary',
+        onConfirm: async () => {
+          const res = await api('POST', '/api/admin/database/students/delete', { register_no: reg });
+          if (!res.ok) {
+            toast(res.data.message || 'Failed to delete student.');
+            return false;
+          }
+          toast(`Student ${reg} deleted.`);
+          dbStudentsCache = null;
+          await loadDatabaseData();
+          return true;
+        }
+      });
+    }
   }
 
   function openFacultyModal(fac) {
