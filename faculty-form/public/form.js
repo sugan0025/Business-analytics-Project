@@ -475,16 +475,6 @@
             ${isBalanced ? '✓ Total capacity accommodates all 44 students.' : '⚠️ Warning: Total seats (' + totalCap + ') less than 44 students.'}
           </div>
         </div>
-
-        <div class="reset-box" style="margin-top: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; background: var(--hover); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
-          <div>
-            <div style="font-weight: 600; font-size: 13px; color: var(--text);">🔄 Google Sheets & Database Reconciliation</div>
-            <div class="hint" style="font-size: 12px; margin-top: 2px;">Sync allocations between PostgreSQL/SQLite and Google Sheets, resolving any sync discrepancies.</div>
-          </div>
-          <button class="btn-text" id="reconcileSheetsBtn" type="button" style="border: 1px solid var(--border); border-radius: 6px; padding: 7px 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; background: var(--card-bg, #fff); cursor: pointer;">
-            🔄 Reconcile Sheets & DB
-          </button>
-        </div>
       </div>`;
   }
 
@@ -537,31 +527,6 @@
           dbFacultiesCache = null;
         }
         if (onRefresh) onRefresh();
-      });
-    }
-
-    const recBtn = $('#reconcileSheetsBtn');
-    if (recBtn) {
-      recBtn.addEventListener('click', async () => {
-        recBtn.disabled = true;
-        const orig = recBtn.innerHTML;
-        recBtn.innerHTML = '⏳ Reconciling…';
-        try {
-          const r = await api('POST', '/api/admin/reconcile-sheets');
-          if (!r.ok) {
-            toast(r.data?.message || 'Reconciliation failed.');
-          } else {
-            toast('✓ Sheets and database reconciled successfully!');
-            const rMe = await api('GET', '/api/director/overview');
-            if (rMe.ok) me.master_overview = rMe.data.master_overview;
-            if (onRefresh) onRefresh();
-          }
-        } catch (e) {
-          toast('Reconciliation error: ' + (e.message || e));
-        } finally {
-          recBtn.disabled = false;
-          recBtn.innerHTML = orig;
-        }
       });
     }
 
@@ -861,9 +826,6 @@
             <button class="btn-primary" id="dbAddBtn" type="button" style="padding: 7px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
               ${currentDbSubTab === 'students' ? '➕ Add Student' : '➕ Add Faculty'}
             </button>
-            <button class="btn-text" id="dbReconcileBtn" type="button" style="padding: 6px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;" title="Reconcile Sheets & DB">
-              🔄 Reconcile Sheets
-            </button>
             <button class="btn-text" id="dbRefreshBtn" type="button" style="padding: 6px 10px; font-size: 13px;" title="Refresh Data">
               ${ico('refresh')} Refresh
             </button>
@@ -881,33 +843,6 @@
     const searchInput = $('#dbSearchInput');
     const addBtn = $('#dbAddBtn');
     const refreshBtn = $('#dbRefreshBtn');
-    const dbRecBtn = $('#dbReconcileBtn');
-
-    if (dbRecBtn) {
-      dbRecBtn.addEventListener('click', async () => {
-        dbRecBtn.disabled = true;
-        const orig = dbRecBtn.innerHTML;
-        dbRecBtn.innerHTML = '⏳ Reconciling…';
-        try {
-          const r = await api('POST', '/api/admin/reconcile-sheets');
-          if (!r.ok) {
-            toast(r.data?.message || 'Reconciliation failed.');
-          } else {
-            toast('✓ Sheets and database reconciled successfully!');
-            dbStudentsCache = null;
-            dbFacultiesCache = null;
-            await loadDatabaseData();
-            const rMe = await api('GET', '/api/director/overview');
-            if (rMe.ok) me.master_overview = rMe.data.master_overview;
-          }
-        } catch (e) {
-          toast('Reconciliation error: ' + (e.message || e));
-        } finally {
-          dbRecBtn.disabled = false;
-          dbRecBtn.innerHTML = orig;
-        }
-      });
-    }
 
     if (subStudents) {
       subStudents.addEventListener('click', () => {
