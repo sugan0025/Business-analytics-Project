@@ -147,7 +147,7 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
         if existing:
             return _existing_result(existing, email, faculty_id)
         return _fail("no_attempt")
-    if now_ms > attempt["started_ms"] + window_ms:
+    if timer_ms > 0 and timer_ms < 86400000 and now_ms > attempt["started_ms"] + window_ms:
         with engine.begin() as conn:
             conn.execute(update(attempts).where(attempts.c.id == attempt["id"]).values(status="expired"))
         return _fail("timer_expired")

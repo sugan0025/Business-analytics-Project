@@ -16,7 +16,6 @@
   let selectedId = null;    // faculty the student ticked
   let expiresMs = 0;        // server-time deadline of the current attempt
   let offset = 0;           // serverNow - Date.now()
-  let expired = false;
   let submitting = false;
   let pollTimer = null, tickTimer = null, openTimer = null;
   let currentEtag = '';
@@ -142,7 +141,7 @@
 
   function applyStateAndRender(state) {
     stopTimers();
-    expired = false; submitting = false; selectedId = null;
+    submitting = false; selectedId = null;
     me = state;
     offset = me.server_now - Date.now();
     if (me.faculty && me.faculty.length) {
@@ -160,7 +159,7 @@
   // ---------- boot ----------
   async function boot() {
     stopTimers();
-    expired = false; submitting = false; selectedId = null;
+    submitting = false; selectedId = null;
 
     const init = window.INITIAL_STATE;
     if (init && typeof init === 'object' && init.server_now) {
@@ -1110,7 +1109,11 @@
       <div class="form-note">Seats update live. Once a faculty is full it can't be selected. You can't change your choice after submitting.</div>`;
 
     bindSwitch();
-    renderOptions();
+    if (faculty && faculty.length) {
+      renderOptions();
+    }
+    refreshAvailability();
+
     $('#submitBtn').addEventListener('click', submit);
     $('#clearBtn').addEventListener('click', clearForm);
 
@@ -1125,10 +1128,11 @@
       beginAttempt(preloadedAttempt);
       pollTimer = setInterval(refreshAvailability, 2500);
     } else {
-      const r = await api('POST', '/api/start');
-      if (!r.ok) return handleStartError(r);
-      beginAttempt(r.data);
-      pollTimer = setInterval(refreshAvailability, 2500);
+      api('POST', '/api/start').then(r => {
+        if (!r.ok) return handleStartError(r);
+        beginAttempt(r.data);
+        pollTimer = setInterval(refreshAvailability, 2500);
+      });
     }
   }
 
@@ -1141,27 +1145,11 @@
   }
 
   function beginAttempt(att) {
-    expiresMs = att.expires_ms;
-    offset = att.server_now - Date.now();
-    timerEl.classList.remove('hidden');
-    updateTimer();
-    clearInterval(tickTimer);
-    tickTimer = setInterval(updateTimer, 250);
-  }
-
-  function updateTimer() {
-    const msLeft = expiresMs - serverNow();
-    if (msLeft <= 0) {
-      timerText.textContent = '0:00';
-      timerEl.classList.add('warn');
-      onExpired();
-      return;
+    if (att) {
+      expiresMs = att.expires_ms || 0;
+      offset = (att.server_now || Date.now()) - Date.now();
     }
-    const totalSec = Math.ceil(msLeft / 1000);
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    timerText.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
-    timerEl.classList.toggle('warn', totalSec <= 10);
+    if (timerEl) timerEl.classList.add('hidden');
   }
 
   function setLocked(locked) {
@@ -1169,43 +1157,24 @@
     if (!locked) updateOptions();
   }
 
-  function onExpired() {
-    expired = true;
-    clearInterval(tickTimer);
-    setLocked(true);
-    const b = $('#formBanner');
-    if (!b) return;
-    b.innerHTML = `<div class="banner">${ico('hourglass_bottom')}
-      <div>Time's up. The 1-minute limit has passed, so this attempt can't be submitted.</div>
-      <button class="link-btn banner-action" id="restartBtn" type="button">Start again</button></div>`;
-    $('#restartBtn').addEventListener('click', restart);
-  }
-
-  async function restart() {
-    const r = await api('POST', '/api/start');
-    if (!r.ok) return handleStartError(r);
-    const b = $('#formBanner'); if (b) b.innerHTML = '';
-    beginAttempt(r.data);
-    setLocked(false);
-    refreshAvailability();
-  }
-
   function renderOptions() {
     const box = $('#options');
-    if (!box) return;
+    if (!box || !faculty || !faculty.length) return;
     box.innerHTML = faculty.map(f => `
       <label class="option" data-id="${f.id}">
-        <input type="radio" name="faculty" value="${f.id}" />
+        <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
         <span class="radio"></span>
         <span class="name">${esc(f.name)}</span>
         <span class="seats"></span>
       </label>`).join('');
+
     box.addEventListener('change', (e) => {
       if (e.target.name === 'faculty') {
         selectedId = Number(e.target.value);
         markError('facCard', false);
       }
     });
+
     updateOptions();
   }
 
@@ -1228,7 +1197,7 @@
       const seats = row.querySelector('.seats');
       row.classList.toggle('disabled', full);
       if (input) {
-        input.disabled = full || expired || submitting;
+        input.disabled = full || submitting;
         if (selectedId === f.id) input.checked = !full;
       }
       if (seats) {
@@ -1251,7 +1220,12 @@
     if (r.ok && r.data.faculty) {
       faculty = r.data.faculty;
       if (r.etag) currentEtag = r.etag;
-      updateOptions();
+      const optionRows = root.querySelectorAll('#options .option');
+      if (optionRows.length === 0) {
+        renderOptions();
+      } else {
+        updateOptions();
+      }
     }
   }
 
@@ -1292,20 +1266,25 @@
     if (d.code === 'already_submitted' && d.selection) return showDone(d.selection, true);
     if (r.status === 401) return showSignin('Your session ended. Please sign in again.');
     if (d.code === 'not_open' || d.code === 'closed') { me.is_open = false; me.reason = d.code; return showClosed(); }
-    if (d.code === 'timer_expired') { setLocked(false); onExpired(); return; }
+    if (d.code === 'timer_expired') {
+      setLocked(false);
+      api('POST', '/api/start').then(res => { if (res.ok) beginAttempt(res.data); });
+      toast('Session refreshed. Please click Submit again.');
+      return;
+    }
     if (d.code === 'faculty_full') {
       if (d.faculty) faculty = d.faculty;
       selectedId = null;
       root.querySelectorAll('#options input').forEach(i => { i.checked = false; });
-      setLocked(expired);
-      if (btn) btn.disabled = expired;
+      setLocked(false);
+      if (btn) btn.disabled = false;
       updateOptions();
       markError('facCard', true, d.message);
       toast(d.message);
       return;
     }
-    setLocked(expired);
-    if (btn) btn.disabled = expired;
+    setLocked(false);
+    if (btn) btn.disabled = false;
     updateOptions();
     const msg = d.message || 'Something went wrong. Please try again.';
     toast(msg);
@@ -1374,7 +1353,7 @@
     } else if (e.key === '0') {
       idx = 9;
     }
-    if (idx >= 0 && faculty && faculty[idx] && faculty[idx].remaining > 0 && !submitting && !expired) {
+    if (idx >= 0 && faculty && faculty[idx] && faculty[idx].remaining > 0 && !submitting) {
       selectFaculty(faculty[idx].id);
     }
   });
@@ -1395,7 +1374,7 @@
         });
       } else {
         refreshAvailability();
-        if (!pollTimer && !submitting && !expired && $('#options')) {
+        if (!pollTimer && !submitting && $('#options')) {
           pollTimer = setInterval(refreshAvailability, 2500);
         }
       }

@@ -382,12 +382,31 @@ def create_app(settings=None, engine=None, sheets_client=None):
             out["master_overview"] = get_master_overview_data(engine_)
             return jsonify(out)
 
+        try:
+            fac_data, etag = get_cached_availability(engine_, max_age=1.0)
+            out["faculty"] = fac_data
+            out["etag"] = etag
+        except Exception:
+            out["faculty"] = []
+            out["etag"] = ""
+
         with engine_.connect() as conn:
             existing = allocation.get_selection(conn, email=ident["email"])
         if existing:
             out["selection"] = sel_json(allocation.selection_view(existing))
-        elif ident.get("register_no") is None:
-            out["roster"] = free_roster(engine_)
+        else:
+            if ident.get("register_no") is None:
+                out["roster"] = free_roster(engine_)
+            if is_open:
+                st_res = allocation.start_attempt(engine_, ident["email"], t, settings.timer_seconds * 1000,
+                                               settings.max_attempts)
+                if st_res.ok:
+                    out["attempt"] = {
+                        "started_ms": st_res.extra["started_ms"],
+                        "expires_ms": st_res.extra["expires_ms"],
+                        "timer_seconds": settings.timer_seconds,
+                        "server_now": t,
+                    }
         return jsonify(out)
 
     @app.get("/api/director/overview")
