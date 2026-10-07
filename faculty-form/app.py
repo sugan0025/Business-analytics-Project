@@ -309,7 +309,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "domain": settings.email_domain,
         }
         initial_state = get_initial_state(include_attempt=True)
-        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title)
+        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v=int(time.time()))
 
     @app.get("/healthz")
     def healthz():

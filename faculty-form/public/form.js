@@ -57,7 +57,7 @@
       }
       let data = {};
       try { data = await res.json(); } catch (_) { /* non-JSON response */ }
-      const etag = res.headers.get('ETag') || '';
+      const etag = (res.headers && typeof res.headers.get === 'function') ? (res.headers.get('ETag') || '') : '';
       return { status: res.status, ok: res.ok && data.ok !== false, data, etag };
     } catch (_) {
       return { status: 0, ok: false, data: { code: 'network', message: 'Network problem. Check your connection and try again.' } };
@@ -1111,9 +1111,7 @@
       <div class="form-note">Seats update live. Once a faculty is full it can't be selected. You can't change your choice after submitting.</div>`;
 
     bindSwitch();
-    if (faculty && faculty.length) {
-      renderOptions();
-    }
+    renderOptions();
     refreshAvailability();
 
     $('#submitBtn').addEventListener('click', submit);
@@ -1161,7 +1159,11 @@
 
   function renderOptions() {
     const box = $('#options');
-    if (!box || !faculty || !faculty.length) return;
+    if (!box) return;
+    if (!faculty || !faculty.length) {
+      box.innerHTML = '<div style="padding:14px;color:var(--text-secondary);font-size:13px;text-align:center;">Loading faculty choices…</div>';
+      return;
+    }
     box.innerHTML = faculty.map(f => `
       <label class="option" data-id="${f.id}">
         <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
@@ -1217,13 +1219,17 @@
 
   async function refreshAvailability() {
     if (submitting || !$('#options')) return;
-    const r = await api('GET', '/api/availability', undefined, currentEtag ? { 'If-None-Match': currentEtag } : {});
-    if (r.notModified) return;
+    const hasOptions = root.querySelectorAll('#options .option').length > 0;
+    const headers = (currentEtag && hasOptions) ? { 'If-None-Match': currentEtag } : {};
+    const r = await api('GET', '/api/availability', undefined, headers);
+    if (r.notModified) {
+      if (!hasOptions && faculty && faculty.length) renderOptions();
+      return;
+    }
     if (r.ok && r.data.faculty) {
       faculty = r.data.faculty;
       if (r.etag) currentEtag = r.etag;
-      const optionRows = root.querySelectorAll('#options .option');
-      if (optionRows.length === 0) {
+      if (!hasOptions) {
         renderOptions();
       } else {
         updateOptions();
@@ -1246,7 +1252,7 @@
   }
 
   async function submit() {
-    if (submitting || expired) return;
+    if (submitting) return;
     const reg = $('#regSelect');
     let bad = false;
     if (reg && !reg.value) { markError('regCard', true, 'This is a required question'); bad = true; }
