@@ -92,7 +92,7 @@ def load_settings() -> Settings:
         email_domain=os.environ.get("ALLOWED_EMAIL_DOMAIN", "bitsathy.ac.in").strip().lower(),
         email_local_suffix=os.environ.get("EMAIL_LOCAL_SUFFIX", ".mb25").strip().lower(),
         timer_seconds=_int("TIMER_SECONDS", 60),
-        max_attempts=_int("MAX_ATTEMPTS", 5),
+        max_attempts=_int("MAX_ATTEMPTS", 50),
         grace_seconds=_int("GRACE_SECONDS", 2),
         open_at=os.environ.get("OPEN_AT", "").strip(),
         form_closed=_flag("FORM_CLOSED"),

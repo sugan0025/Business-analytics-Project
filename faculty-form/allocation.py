@@ -146,7 +146,11 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
             existing = get_selection(conn, email=email, register_no=register_no)
         if existing:
             return _existing_result(existing, email, faculty_id)
-        return _fail("no_attempt")
+        # Create an attempt on the fly so valid submissions are never dropped
+        with engine.begin() as conn:
+            ins = conn.execute(insert(attempts).values(email=email, started_ms=now_ms, status="open"))
+            att_id = ins.inserted_primary_key[0] if ins.inserted_primary_key else 1
+            attempt = {"id": att_id, "started_ms": now_ms, "status": "open"}
     if timer_ms > 0 and timer_ms < 86400000 and now_ms > attempt["started_ms"] + window_ms:
         with engine.begin() as conn:
             conn.execute(update(attempts).where(attempts.c.id == attempt["id"]).values(status="expired"))

@@ -58,7 +58,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     _last_sync_time = [0.0]
 
-    def trigger_sheet_sync(engine_, sheets, background=True, timeout=0.8):
+    def trigger_sheet_sync(engine_, sheets, background=True, timeout=0.0):
         if sheets is None:
             return
         def _do_sync():
@@ -313,24 +313,19 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
     @app.get("/healthz")
     def healthz():
-        info = {"ok": True, "google_signin_configured": bool(settings.google_client_id),
-                "sheets_configured": bool(settings.service_account_json or settings.service_account_file),
-                "database": "postgres" if not settings.database_url.startswith("sqlite") else "sqlite"}
+        info = {
+            "ok": True,
+            "google_signin_configured": bool(settings.google_client_id),
+            "sheets_configured": bool(settings.service_account_json or settings.service_account_file),
+            "database": "postgres" if not settings.database_url.startswith("sqlite") else "sqlite",
+        }
         try:
             eng = get_engine()
             with eng.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            sheets = get_sheets()
-            if sheets:
-                try:
-                    reconcile_res = sheets_sync.reconcile_sheet_and_db(eng, sheets)
-                    info["reconcile"] = reconcile_res
-                    invalidate_availability_cache()
-                except Exception as ex:
-                    info["reconcile_error"] = str(ex)
-            data, etag = get_cached_availability(eng, max_age=0.0)
-            info["faculty_count"] = len(data)
             info["database_ok"] = True
+            data, _ = get_cached_availability(eng, max_age=5.0)
+            info["faculty_count"] = len(data)
         except Exception as exc:
             info.update(ok=False, database_ok=False, error=str(exc))
             return jsonify(info), 500

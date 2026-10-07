@@ -87,6 +87,9 @@ class GoogleSheetsClient:
         ranges = [f"'{self.responses_tab}'!A{n}:F{n}" for n in row_numbers]
         self._call("POST", "/values:batchClear", json={"ranges": ranges})
 
+    def clear_range(self, range_expr: str):
+        self._call("POST", "/values:batchClear", json={"ranges": [range_expr]})
+
     def read_responses(self) -> list:
         try:
             res = self._call("GET", f"/values/'{self.responses_tab}'!A:F")
@@ -228,43 +231,78 @@ def sync_pending(engine, client, limit: int = 100) -> dict:
     return {"synced": len(rows), "pending": 0, "error": None}
 
 
-def reconcile_sheet_and_db(engine, client) -> dict:
-    """Two-way synchronization between Google Sheet and database:
-    1. Clear Suganesan S (7376257MB144 / suganesans.mb25@bitsathy.ac.in) from Google Sheet Responses tab.
-    2. Count remaining student choices in Responses tab per faculty.
-    3. Update database table `faculty`:
-       - Correct capacities: 5 for IDs (2, 3, 4), and 4 for IDs (5, 6, 7, 8, 9, 10).
-       - Set selected_count to match Google Sheet selection counts dynamically.
-    4. Remove any database records for Suganesan (selections and attempts).
-    """
+def rewrite_all_selections(engine, client) -> dict:
+    """Read all selections from DB in order 1..N and cleanly rewrite Google Sheet Responses tab."""
     if client is None:
         return {"ok": False, "error": "sheets_client_none"}
 
     try:
-        cleared = client.delete_student_by_query("7376257MB144", "suganesans.mb25@bitsathy.ac.in")
-        counts = client.count_selections_by_faculty()
+        from db import faculty, resequence_selections, selections
+        resequence_selections(engine)
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                select(selections, faculty.c.name.label("faculty_name"))
+                .join(faculty, faculty.c.id == selections.c.faculty_id)
+                .order_by(selections.c.seq_id)
+            ).mappings().all()
+
+        client.ensure_tab(client.responses_tab, HEADERS)
+        client.clear_range(f"'{client.responses_tab}'!A2:F200")
+
+        if rows:
+            sheet_rows = [(idx + 1, row_values(r)) for idx, r in enumerate(rows, start=1)]
+            client.write_rows(sheet_rows)
+            with engine.begin() as conn:
+                conn.execute(update(selections).values(synced=1, sync_error=None))
 
         with engine.begin() as conn:
-            # Enforce correct capacities
-            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4])).values(capacity=5))
-            conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
+            from sqlalchemy import func
+            fac_counts = conn.execute(
+                select(selections.c.faculty_id, func.count().label("cnt"))
+                .group_by(selections.c.faculty_id)
+            ).all()
+            fac_cnt_map = {fc[0]: fc[1] for fc in fac_counts}
+            fac_list = conn.execute(select(faculty)).mappings().all()
+            for f in fac_list:
+                actual_cnt = fac_cnt_map.get(f["id"], 0)
+                if f["selected_count"] != actual_cnt:
+                    conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=actual_cnt))
 
-            # Reconcile selected_count if Google Sheet has responses
-            if counts:
-                fac_rows = conn.execute(select(faculty)).mappings().all()
-                for f in fac_rows:
-                    cnt = counts.get(f["name"], 0)
-                    conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=cnt))
-
-            # Ensure Suganesan's student test record is deleted from DB
-            from db import attempts, selections
-            conn.execute(selections.delete().where(
-                (selections.c.register_no == "7376257MB144") |
-                (selections.c.email == "suganesans.mb25@bitsathy.ac.in")
-            ))
-            conn.execute(attempts.delete().where(attempts.c.email == "suganesans.mb25@bitsathy.ac.in"))
-
-        return {"ok": True, "cleared_rows": cleared, "counts": counts}
+        return {"ok": True, "rewritten": len(rows)}
     except Exception as exc:
-        log.exception("Error in reconcile_sheet_and_db")
+        log.exception("Error in rewrite_all_selections")
         return {"ok": False, "error": str(exc)}
+
+
+def reconcile_sheet_and_db(engine, client) -> dict:
+    """Synchronize Google Sheet and database:
+    1. Resequence DB selections 1..N with no gaps.
+    2. Enforce correct capacities: 5 for IDs (2, 3, 4), and 4 for IDs (5, 6, 7, 8, 9, 10).
+    3. Update selected_count to match DB selections accurately.
+    4. Sync rows to Google Sheet cleanly.
+    """
+    from db import faculty, resequence_selections, selections
+    resequence_selections(engine)
+
+    with engine.begin() as conn:
+        # Enforce correct capacities
+        conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4])).values(capacity=5))
+        conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
+
+        from sqlalchemy import func
+        fac_counts = conn.execute(
+            select(selections.c.faculty_id, func.count().label("cnt"))
+            .group_by(selections.c.faculty_id)
+        ).all()
+        fac_cnt_map = {fc[0]: fc[1] for fc in fac_counts}
+        fac_rows = conn.execute(select(faculty)).mappings().all()
+        for f in fac_rows:
+            cnt = fac_cnt_map.get(f["id"], 0)
+            conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=cnt))
+
+    sheet_res = {}
+    if client:
+        sheet_res = rewrite_all_selections(engine, client)
+
+    return {"ok": True, "sheet": sheet_res}

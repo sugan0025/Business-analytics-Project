@@ -140,27 +140,6 @@ def init_schema(engine):
     except Exception:
         pass
 
-    # Reset test student selection for Suganesan (7376257MB144 / suganesans.mb25@bitsathy.ac.in)
-    try:
-        with engine.begin() as conn:
-            from sqlalchemy import or_
-            sug_sels = conn.execute(
-                select(selections).where(
-                    or_(selections.c.register_no == "7376257MB144",
-                        selections.c.email == "suganesans.mb25@bitsathy.ac.in")
-                )
-            ).mappings().all()
-            for s in sug_sels:
-                conn.execute(
-                    update(faculty)
-                    .where(faculty.c.id == s["faculty_id"])
-                    .values(selected_count=faculty.c.selected_count - 1)
-                )
-                conn.execute(delete(selections).where(selections.c.seq_id == s["seq_id"]))
-            conn.execute(delete(attempts).where(attempts.c.email == "suganesans.mb25@bitsathy.ac.in"))
-    except Exception:
-        pass
-
     # Enforce capacities matching Google Sheet
     try:
         with engine.begin() as conn:
@@ -168,6 +147,46 @@ def init_schema(engine):
             conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
     except Exception:
         pass
+
+    # Ensure selections are cleanly numbered 1, 2, 3... without gaps
+    try:
+        resequence_selections(engine)
+    except Exception:
+        pass
+
+
+def resequence_selections(engine):
+    """Ensure existing selections are numbered 1, 2, 3... sequentially with no gaps."""
+    with engine.begin() as conn:
+        cur_sels = conn.execute(select(selections).order_by(selections.c.created_ms, selections.c.seq_id)).mappings().all()
+        if not cur_sels:
+            if "sqlite" not in str(engine.url):
+                try:
+                    conn.execute(text("SELECT setval(pg_get_serial_sequence('selections', 'seq_id'), 1, false)"))
+                except Exception:
+                    pass
+            return 0
+        needs_resequence = any(row["seq_id"] != idx for idx, row in enumerate(cur_sels, start=1))
+        if needs_resequence:
+            for idx, row in enumerate(cur_sels, start=1):
+                conn.execute(update(selections).where(selections.c.seq_id == row["seq_id"]).values(seq_id=-idx))
+            for idx, row in enumerate(cur_sels, start=1):
+                conn.execute(update(selections).where(selections.c.seq_id == -idx).values(seq_id=idx, synced=0))
+
+        if "sqlite" in str(engine.url):
+            try:
+                conn.execute(text(f"UPDATE sqlite_sequence SET seq = {len(cur_sels)} WHERE name = 'selections'"))
+            except Exception:
+                pass
+        else:
+            try:
+                conn.execute(text(f"SELECT setval(pg_get_serial_sequence('selections', 'seq_id'), {len(cur_sels)}, true)"))
+            except Exception:
+                try:
+                    conn.execute(text(f"SELECT setval('selections_seq_id_seq', {len(cur_sels)})"))
+                except Exception:
+                    pass
+    return len(cur_sels)
 
 
 # ---- seeding from the CSV config files ------------------------------------
