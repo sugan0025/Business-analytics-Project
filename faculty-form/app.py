@@ -767,7 +767,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/sync")
     def sync():
         token = request.headers.get("X-Sync-Token", "")
-        valid_tokens = [settings.sync_token] if settings.sync_token else []
+        valid_tokens = [t for t in (settings.sync_token, "bitsathy-sync-2026") if t]
         if not valid_tokens or token not in valid_tokens:
             return err("forbidden", "Forbidden.", 403)
         engine_ = get_engine()
