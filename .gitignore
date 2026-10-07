@@ -1,0 +1,16 @@
+# Python & environments
+.env
+*.env
+credentials.json
+token.json
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+.vercel/
+*.zip
+.DS_Store
+Thumbs.db

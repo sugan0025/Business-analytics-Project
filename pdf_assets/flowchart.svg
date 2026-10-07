@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 160" width="100%" height="auto">
+  <defs>
+    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#673ab7"/>
+      <stop offset="100%" stop-color="#4527a0"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-10%" width="110%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <style>
+    .step-box { rx: 8px; fill: #ffffff; stroke: #e0e0e0; stroke-width: 1.5; filter: url(#shadow); }
+    .step-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; font-weight: 700; fill: #1f1f1f; }
+    .step-sub { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; fill: #5f6368; }
+    .badge { rx: 4px; fill: #f3e8fd; }
+    .badge-text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 10px; font-weight: 700; fill: #673ab7; }
+    .arrow { stroke: #673ab7; stroke-width: 2; stroke-dasharray: 4,4; fill: none; }
+    .arrow-head { fill: #673ab7; }
+  </style>
+
+  <!-- Step 1 -->
+  <g transform="translate(10, 20)">
+    <rect width="150" height="110" class="step-box"/>
+    <rect x="12" y="12" width="22" height="18" class="badge"/>
+    <text x="18" y="25" class="badge-text">01</text>
+    <text x="40" y="25" class="step-title">Visit Portal</text>
+    <text x="12" y="52" class="step-sub">• Vercel edge URL</text>
+    <text x="12" y="70" class="step-sub">• Sub-300ms load</text>
+    <text x="12" y="88" class="step-sub">• Clean mobile UI</text>
+  </g>
+
+  <!-- Arrow 1 -> 2 -->
+  <line x1="165" y1="75" x2="185" y2="75" class="arrow"/>
+  <polygon points="187,75 181,71 181,79" class="arrow-head"/>
+
+  <!-- Step 2 -->
+  <g transform="translate(190, 20)">
+    <rect width="150" height="110" class="step-box"/>
+    <rect x="12" y="12" width="22" height="18" class="badge"/>
+    <text x="18" y="25" class="badge-text">02</text>
+    <text x="40" y="25" class="step-title">Google OAuth</text>
+    <text x="12" y="52" class="step-sub">• @bitsathy.ac.in</text>
+    <text x="12" y="70" class="step-sub">• Cryptographic token</text>
+    <text x="12" y="88" class="step-sub">• No fake logins</text>
+  </g>
+
+  <!-- Arrow 2 -> 3 -->
+  <line x1="345" y1="75" x2="365" y2="75" class="arrow"/>
+  <polygon points="367,75 361,71 361,79" class="arrow-head"/>
+
+  <!-- Step 3 -->
+  <g transform="translate(370, 20)">
+    <rect width="150" height="110" class="step-box"/>
+    <rect x="12" y="12" width="22" height="18" class="badge"/>
+    <text x="18" y="25" class="badge-text">03</text>
+    <text x="40" y="25" class="step-title">Select Guide</text>
+    <text x="12" y="52" class="step-sub">• Live seat counters</text>
+    <text x="12" y="70" class="step-sub">• 60s fair-play timer</text>
+    <text x="12" y="88" class="step-sub">• One-click choose</text>
+  </g>
+
+  <!-- Arrow 3 -> 4 -->
+  <line x1="525" y1="75" x2="545" y2="75" class="arrow"/>
+  <polygon points="547,75 541,71 541,79" class="arrow-head"/>
+
+  <!-- Step 4 -->
+  <g transform="translate(550, 20)">
+    <rect width="150" height="110" class="step-box" style="stroke: #673ab7; stroke-width: 2;"/>
+    <rect x="12" y="12" width="22" height="18" class="badge" style="fill: #673ab7;"/>
+    <text x="18" y="25" class="badge-text" style="fill: #fff;">04</text>
+    <text x="40" y="25" class="step-title" style="fill: #673ab7;">Atomic Lock</text>
+    <text x="12" y="52" class="step-sub">• Supabase PostgreSQL</text>
+    <text x="12" y="70" class="step-sub">• Row-level lock</text>
+    <text x="12" y="88" class="step-sub">• Strict FCFS queue</text>
+  </g>
+
+  <!-- Arrow 4 -> 5 -->
+  <line x1="705" y1="75" x2="725" y2="75" class="arrow"/>
+  <polygon points="727,75 721,71 721,79" class="arrow-head"/>
+
+  <!-- Step 5 -->
+  <g transform="translate(730, 20)">
+    <rect width="160" height="110" class="step-box" style="stroke: #188038;"/>
+    <rect x="12" y="12" width="22" height="18" class="badge" style="fill: #e6f4ea;"/>
+    <text x="18" y="25" class="badge-text" style="fill: #188038;">05</text>
+    <text x="40" y="25" class="step-title" style="fill: #188038;">Sheets Sync</text>
+    <text x="12" y="52" class="step-sub">• Real-time Google Sheet</text>
+    <text x="12" y="70" class="step-sub">• Instant HOD audit</text>
+    <text x="12" y="88" class="step-sub">• Timestamped receipt</text>
+  </g>
+</svg>
