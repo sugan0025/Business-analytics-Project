@@ -570,6 +570,272 @@ def create_app(settings=None, engine=None, sheets_client=None):
         avail, _ = get_cached_availability(eng, max_age=0.0)
         return jsonify({"ok": True, "reconcile": res, "faculty": avail})
 
+    # ---- admin database management (Students & Faculties) ----------------------------
+    @app.get("/api/admin/database/students")
+    def admin_get_students():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        engine_ = get_engine()
+        from db import faculty, selections, students
+        with engine_.connect() as conn:
+            all_stu = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
+            all_sels = conn.execute(
+                select(selections, faculty.c.name.label("faculty_name"))
+                .join(faculty, faculty.c.id == selections.c.faculty_id)
+            ).mappings().all()
+
+        sel_by_reg = {s["register_no"]: s for s in all_sels}
+        sel_by_email = {s["email"].lower(): s for s in all_sels if s.get("email")}
+
+        res = []
+        for s in all_stu:
+            reg = s["register_no"]
+            email = (s.get("email") or "").lower()
+            alloc = sel_by_reg.get(reg) or (sel_by_email.get(email) if email else None)
+            alloc_data = None
+            if alloc:
+                alloc_data = {
+                    "faculty_id": alloc["faculty_id"],
+                    "faculty_name": alloc["faculty_name"],
+                    "seq_id": alloc["seq_id"],
+                    "time": config.fmt_ist(alloc["created_ms"]),
+                }
+            res.append({
+                "register_no": reg,
+                "name": s["name"],
+                "email": s.get("email") or "",
+                "allocation": alloc_data,
+            })
+        return jsonify({"ok": True, "students": res})
+
+    @app.post("/api/admin/database/students/save")
+    def admin_save_student():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        data = body_json()
+        old_reg = str(data.get("old_register_no") or "").strip().upper()
+        new_reg = str(data.get("register_no") or "").strip().upper()
+        name = str(data.get("name") or "").strip()
+        email = str(data.get("email") or "").strip().lower() or None
+
+        if not new_reg or not name:
+            return err("invalid_data", "Register number and student name are required.", 400)
+
+        engine_ = get_engine()
+        from db import attempts, selections, students
+        sheets = get_sheets()
+
+        with engine_.begin() as conn:
+            if old_reg:
+                existing = conn.execute(select(students).where(students.c.register_no == old_reg)).mappings().first()
+                if not existing:
+                    return err("not_found", f"Student {old_reg} not found.", 404)
+
+                if new_reg != old_reg:
+                    dup = conn.execute(select(students).where(students.c.register_no == new_reg)).first()
+                    if dup:
+                        return err("duplicate_reg", f"Register number {new_reg} is already used.", 400)
+
+                if email and email != (existing.get("email") or "").lower():
+                    dup_e = conn.execute(select(students).where(students.c.email == email, students.c.register_no != old_reg)).first()
+                    if dup_e:
+                        return err("duplicate_email", f"Email {email} is already assigned to another student.", 400)
+
+                conn.execute(
+                    update(students).where(students.c.register_no == old_reg)
+                    .values(register_no=new_reg, name=name, email=email)
+                )
+
+                sel_row = conn.execute(
+                    select(selections).where(
+                        (selections.c.register_no == old_reg) |
+                        ((selections.c.email == existing.get("email")) if existing.get("email") else False)
+                    )
+                ).mappings().first()
+
+                if sel_row:
+                    conn.execute(
+                        update(selections).where(selections.c.seq_id == sel_row["seq_id"])
+                        .values(register_no=new_reg, student_name=name, email=email or sel_row["email"], synced=0)
+                    )
+
+                if existing.get("email") and email:
+                    conn.execute(update(attempts).where(attempts.c.email == existing["email"]).values(email=email))
+            else:
+                dup = conn.execute(select(students).where(students.c.register_no == new_reg)).first()
+                if dup:
+                    return err("duplicate_reg", f"Register number {new_reg} already exists.", 400)
+                if email:
+                    dup_e = conn.execute(select(students).where(students.c.email == email)).first()
+                    if dup_e:
+                        return err("duplicate_email", f"Email {email} already exists.", 400)
+
+                conn.execute(insert(students).values(register_no=new_reg, name=name, email=email))
+
+        if old_reg and sheets:
+            try:
+                sheets_sync.sync_pending(engine_, sheets, limit=5)
+            except Exception:
+                pass
+
+        return jsonify({"ok": True, "message": "Student record saved successfully."})
+
+    @app.post("/api/admin/database/students/delete")
+    def admin_delete_student():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        data = body_json()
+        reg_no = str(data.get("register_no") or "").strip().upper()
+        if not reg_no:
+            return err("invalid_data", "Register number is required.", 400)
+
+        engine_ = get_engine()
+        sheets = get_sheets()
+        from db import students
+
+        allocation.reset_student(engine_, reg_no)
+
+        with engine_.begin() as conn:
+            conn.execute(delete(students).where(students.c.register_no == reg_no))
+
+        invalidate_availability_cache()
+
+        if sheets:
+            try:
+                sheets_sync.rewrite_all_selections(engine_, sheets)
+            except Exception:
+                pass
+
+        return jsonify({"ok": True, "message": f"Student {reg_no} removed from database."})
+
+    @app.get("/api/admin/database/faculties")
+    def admin_get_faculties():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        engine_ = get_engine()
+        from db import FACULTY_SPECIALIZATIONS, faculty
+        with engine_.connect() as conn:
+            rows = conn.execute(
+                select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
+            ).mappings().all()
+
+        res = []
+        for f in rows:
+            spec = f.get("specialization") or FACULTY_SPECIALIZATIONS.get(f["id"], "")
+            res.append({
+                "id": f["id"],
+                "name": f["name"],
+                "email": f.get("email") or "",
+                "specialization": spec,
+                "capacity": f["capacity"],
+                "selected_count": f["selected_count"],
+                "remaining": max(0, f["capacity"] - f["selected_count"]),
+            })
+        return jsonify({"ok": True, "faculties": res})
+
+    @app.post("/api/admin/database/faculties/save")
+    def admin_save_faculty():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        data = body_json()
+        fid = data.get("id")
+        try:
+            fid = int(fid) if fid is not None and str(fid).strip() != "" else None
+        except (ValueError, TypeError):
+            fid = None
+
+        name = str(data.get("name") or "").strip()
+        email = str(data.get("email") or "").strip().lower() or None
+        spec = str(data.get("specialization") or "").strip()
+        try:
+            cap = int(data.get("capacity", 5))
+        except (ValueError, TypeError):
+            cap = 5
+
+        if not name:
+            return err("invalid_data", "Faculty name is required.", 400)
+        if cap < 1:
+            return err("invalid_data", "Capacity must be at least 1.", 400)
+
+        engine_ = get_engine()
+        from db import FACULTY_SPECIALIZATIONS, faculty
+        sheets = get_sheets()
+
+        with engine_.begin() as conn:
+            if fid and fid > 0:
+                existing = conn.execute(select(faculty).where(faculty.c.id == fid)).mappings().first()
+                if not existing:
+                    return err("not_found", f"Faculty ID {fid} not found.", 404)
+                if cap < existing["selected_count"]:
+                    return err("capacity_too_low", f"Capacity cannot be lower than allocated students ({existing['selected_count']}).", 400)
+                conn.execute(
+                    update(faculty).where(faculty.c.id == fid)
+                    .values(name=name, email=email, specialization=spec, capacity=cap)
+                )
+            else:
+                max_id = conn.execute(select(func.max(faculty.c.id))).scalar() or 11
+                new_id = max(12, max_id + 1)
+                conn.execute(
+                    insert(faculty).values(
+                        id=new_id, name=name, capacity=cap, selected_count=0,
+                        email=email, specialization=spec
+                    )
+                )
+                fid = new_id
+
+        if fid:
+            FACULTY_SPECIALIZATIONS[fid] = spec
+            if email:
+                auth.DEFAULT_FACULTY_MAP[email] = fid
+
+        invalidate_availability_cache()
+
+        if sheets:
+            try:
+                sheets_sync.rewrite_all_selections(engine_, sheets)
+            except Exception:
+                pass
+
+        return jsonify({"ok": True, "message": "Faculty saved successfully.", "id": fid})
+
+    @app.post("/api/admin/database/faculties/delete")
+    def admin_delete_faculty():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin access required.", 403)
+        data = body_json()
+        try:
+            fid = int(data.get("id"))
+        except (ValueError, TypeError):
+            return err("invalid_data", "Valid faculty ID required.", 400)
+
+        engine_ = get_engine()
+        from db import faculty
+        sheets = get_sheets()
+
+        with engine_.begin() as conn:
+            existing = conn.execute(select(faculty).where(faculty.c.id == fid)).mappings().first()
+            if not existing:
+                return err("not_found", "Faculty not found.", 404)
+            if existing["selected_count"] > 0:
+                return err("has_students", f"Cannot delete {existing['name']}: {existing['selected_count']} students are allocated to them.", 400)
+            conn.execute(delete(faculty).where(faculty.c.id == fid))
+
+        invalidate_availability_cache()
+
+        if sheets:
+            try:
+                sheets_sync.rewrite_all_selections(engine_, sheets)
+            except Exception:
+                pass
+
+        return jsonify({"ok": True, "message": "Faculty removed from database."})
+
     @app.get("/api/faculty/dashboard")
     def faculty_dashboard():
         ident = current_identity()

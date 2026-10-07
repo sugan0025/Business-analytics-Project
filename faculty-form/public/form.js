@@ -616,6 +616,9 @@
         ${(isDirector || isAdmin) ? `
         <button class="portal-tab ${activeTab === 'seats' ? 'active' : ''}" id="tabDirectorSeats" type="button">
           ⚙️ Seat Allocation & Quotas
+        </button>
+        <button class="portal-tab ${activeTab === 'database' ? 'active' : ''}" id="tabDirectorDatabase" type="button">
+          🗄️ Database
         </button>` : ''}
         ${(me && me.role === 'faculty') ? `
         <button class="portal-tab ${activeTab === 'my_students' ? 'active' : ''}" id="tabDirectorMyStudents" type="button">
@@ -679,6 +682,8 @@
     } else if (activeTab === 'seats') {
       tabContent.innerHTML = renderSeatAllocationCard(overview);
       setupSeatAllocationHandlers(() => showDirectorDashboard('seats'));
+    } else if (activeTab === 'database') {
+      renderDatabaseManagementTab(tabContent);
     } else if (activeTab === 'my_students') {
       renderMyAllocatedStudentsTab(tabContent);
     }
@@ -687,6 +692,8 @@
     if (tMaster) tMaster.addEventListener('click', () => showDirectorDashboard('master'));
     const tSeats = $('#tabDirectorSeats');
     if (tSeats) tSeats.addEventListener('click', () => showDirectorDashboard('seats'));
+    const tDatabase = $('#tabDirectorDatabase');
+    if (tDatabase) tDatabase.addEventListener('click', () => showDirectorDashboard('database'));
     const tStudents = $('#tabDirectorMyStudents');
     if (tStudents) tStudents.addEventListener('click', () => showDirectorDashboard('my_students'));
     const mySubBtn = $('#tabDirectorMySubmission');
@@ -706,6 +713,567 @@
       });
     }
   }
+
+  // ============================================================
+  // DATABASE MANAGEMENT TAB (Students & Faculties CRUD)
+  // ============================================================
+  let currentDbSubTab = 'students';
+  let dbStudentsCache = null;
+  let dbFacultiesCache = null;
+  let dbSearchQuery = '';
+
+  function showModal({ title, bodyHtml, confirmText = 'Save', confirmBtnClass = 'btn-primary', onConfirm }) {
+    const old = document.querySelector('.modal-backdrop');
+    if (old) old.remove();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>${title}</h3>
+          <button class="modal-close" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          ${bodyHtml}
+        </div>
+        <div class="modal-footer">
+          <button class="btn-text" type="button" id="modalCancelBtn">Cancel</button>
+          <button class="${confirmBtnClass}" type="button" id="modalConfirmBtn">${confirmText}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    const close = () => backdrop.remove();
+    backdrop.querySelector('.modal-close').addEventListener('click', close);
+    backdrop.querySelector('#modalCancelBtn').addEventListener('click', close);
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) close();
+    });
+
+    const confirmBtn = backdrop.querySelector('#modalConfirmBtn');
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      const originalText = confirmBtn.textContent;
+      confirmBtn.textContent = 'Saving…';
+      try {
+        const ok = await onConfirm(backdrop);
+        if (ok) close();
+        else {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = originalText;
+        }
+      } catch (err) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = originalText;
+        toast(err.message || 'Operation failed');
+      }
+    });
+
+    backdrop.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmBtn.click();
+        }
+      });
+    });
+
+    const firstInput = backdrop.querySelector('input');
+    if (firstInput) setTimeout(() => firstInput.focus(), 50);
+
+    return backdrop;
+  }
+
+  function renderDatabaseManagementTab(container) {
+    container.innerHTML = `
+      <div class="card" style="padding-top: 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 14px;">
+          <div class="db-subtabs">
+            <button class="btn-subtab ${currentDbSubTab === 'students' ? 'active' : ''}" id="dbSubtabStudents" type="button">
+              👨‍🎓 Students (<span id="dbStudentBadgeCount">${dbStudentsCache ? dbStudentsCache.length : '…'}</span>)
+            </button>
+            <button class="btn-subtab ${currentDbSubTab === 'faculties' ? 'active' : ''}" id="dbSubtabFaculties" type="button">
+              👨‍🏫 Faculties (<span id="dbFacultyBadgeCount">${dbFacultiesCache ? dbFacultiesCache.length : '…'}</span>)
+            </button>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <div class="db-search-wrap">
+              <input type="text" id="dbSearchInput" class="db-search-input" placeholder="Search ${currentDbSubTab}…" value="${esc(dbSearchQuery)}" autocomplete="off">
+              <span class="db-search-icon" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); opacity: 0.5; pointer-events: none; font-size: 13px;">🔍</span>
+            </div>
+            <button class="btn-primary" id="dbAddBtn" type="button" style="padding: 7px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+              ${currentDbSubTab === 'students' ? '➕ Add Student' : '➕ Add Faculty'}
+            </button>
+            <button class="btn-text" id="dbRefreshBtn" type="button" style="padding: 6px 10px; font-size: 13px;" title="Refresh Data">
+              ${ico('refresh')} Refresh
+            </button>
+          </div>
+        </div>
+
+        <div id="dbTableWrapper">
+          <div style="text-align: center; padding: 30px; color: var(--text-hint);">Loading database records…</div>
+        </div>
+      </div>
+    `;
+
+    const subStudents = $('#dbSubtabStudents');
+    const subFaculties = $('#dbSubtabFaculties');
+    const searchInput = $('#dbSearchInput');
+    const addBtn = $('#dbAddBtn');
+    const refreshBtn = $('#dbRefreshBtn');
+
+    if (subStudents) {
+      subStudents.addEventListener('click', () => {
+        if (currentDbSubTab !== 'students') {
+          currentDbSubTab = 'students';
+          dbSearchQuery = '';
+          renderDatabaseManagementTab(container);
+        }
+      });
+    }
+
+    if (subFaculties) {
+      subFaculties.addEventListener('click', () => {
+        if (currentDbSubTab !== 'faculties') {
+          currentDbSubTab = 'faculties';
+          dbSearchQuery = '';
+          renderDatabaseManagementTab(container);
+        }
+      });
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        dbSearchQuery = e.target.value.trim().toLowerCase();
+        renderCurrentDbTable();
+      });
+    }
+
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        if (currentDbSubTab === 'students') dbStudentsCache = null;
+        else dbFacultiesCache = null;
+        loadDatabaseData();
+      });
+    }
+
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        if (currentDbSubTab === 'students') openStudentModal(null);
+        else openFacultyModal(null);
+      });
+    }
+
+    loadDatabaseData();
+  }
+
+  async function loadDatabaseData() {
+    const wrapper = $('#dbTableWrapper');
+    if (!wrapper) return;
+
+    if (currentDbSubTab === 'students') {
+      if (!dbStudentsCache) {
+        wrapper.innerHTML = `<div style="text-align: center; padding: 30px; color: var(--text-hint);">Loading students from database…</div>`;
+        const r = await api('GET', '/api/admin/database/students');
+        if (!r.ok) {
+          wrapper.innerHTML = `<div style="text-align: center; padding: 30px; color: var(--error);">${esc(r.data.message || 'Failed to load students.')}</div>`;
+          return;
+        }
+        dbStudentsCache = r.data.students || [];
+      }
+      const cntEl = $('#dbStudentBadgeCount');
+      if (cntEl) cntEl.textContent = dbStudentsCache.length;
+      renderCurrentDbTable();
+
+      if (!dbFacultiesCache) {
+        api('GET', '/api/admin/database/faculties').then(rF => {
+          if (rF.ok) {
+            dbFacultiesCache = rF.data.faculties || [];
+            const fCnt = $('#dbFacultyBadgeCount');
+            if (fCnt) fCnt.textContent = dbFacultiesCache.length;
+          }
+        });
+      }
+    } else {
+      if (!dbFacultiesCache) {
+        wrapper.innerHTML = `<div style="text-align: center; padding: 30px; color: var(--text-hint);">Loading faculties from database…</div>`;
+        const r = await api('GET', '/api/admin/database/faculties');
+        if (!r.ok) {
+          wrapper.innerHTML = `<div style="text-align: center; padding: 30px; color: var(--error);">${esc(r.data.message || 'Failed to load faculties.')}</div>`;
+          return;
+        }
+        dbFacultiesCache = r.data.faculties || [];
+      }
+      const cntEl = $('#dbFacultyBadgeCount');
+      if (cntEl) cntEl.textContent = dbFacultiesCache.length;
+      renderCurrentDbTable();
+    }
+  }
+
+  function renderCurrentDbTable() {
+    const wrapper = $('#dbTableWrapper');
+    if (!wrapper) return;
+
+    if (currentDbSubTab === 'students') {
+      const list = (dbStudentsCache || []).filter(s => {
+        if (!dbSearchQuery) return true;
+        const q = dbSearchQuery;
+        return (
+          (s.register_no && s.register_no.toLowerCase().includes(q)) ||
+          (s.name && s.name.toLowerCase().includes(q)) ||
+          (s.email && s.email.toLowerCase().includes(q)) ||
+          (s.allocation && s.allocation.faculty_name && s.allocation.faculty_name.toLowerCase().includes(q))
+        );
+      });
+
+      if (!list.length) {
+        wrapper.innerHTML = `
+          <div style="text-align: center; padding: 35px 20px; color: var(--text-hint);">
+            ${dbSearchQuery ? `No students found matching "<b>${esc(dbSearchQuery)}</b>"` : 'No student records in the database.'}
+          </div>
+        `;
+        return;
+      }
+
+      wrapper.innerHTML = `
+        <div class="table-responsive">
+          <table class="alloc-table" style="margin-bottom: 0;">
+            <thead>
+              <tr>
+                <th style="width: 50px; text-align: center;">#</th>
+                <th style="width: 140px;">Register No</th>
+                <th>Student Name</th>
+                <th>Email ID</th>
+                <th>Guide Allocation Status</th>
+                <th style="width: 90px; text-align: center;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((s, idx) => `
+                <tr>
+                  <td style="text-align: center; font-weight: 600; color: var(--text-hint);">${idx + 1}</td>
+                  <td><span class="reg-chip">${esc(s.register_no)}</span></td>
+                  <td><b>${esc(s.name)}</b></td>
+                  <td><span style="font-size: 12.5px; color: var(--text-secondary);">${esc(s.email || '—')}</span></td>
+                  <td>
+                    ${s.allocation ? `
+                      <span class="badge-allocated" title="Seq #${s.allocation.seq_id} allocated at ${s.allocation.time}">
+                        ✓ ${esc(s.allocation.faculty_name)}
+                      </span>
+                    ` : `
+                      <span class="badge-pending">⏳ Pending Choice</span>
+                    `}
+                  </td>
+                  <td style="text-align: center; white-space: nowrap;">
+                    <button class="icon-btn edit-student-btn" data-reg="${esc(s.register_no)}" title="Edit Student">✏️</button>
+                    <button class="icon-btn icon-btn-delete delete-student-btn" data-reg="${esc(s.register_no)}" data-name="${esc(s.name)}" title="Delete Student">🗑️</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="hint" style="text-align: right; margin-top: 10px; font-size: 12px;">
+          Showing ${list.length} of ${dbStudentsCache.length} students
+        </div>
+      `;
+
+      wrapper.querySelectorAll('.edit-student-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reg = btn.dataset.reg;
+          const stu = dbStudentsCache.find(x => x.register_no === reg);
+          if (stu) openStudentModal(stu);
+        });
+      });
+
+      wrapper.querySelectorAll('.delete-student-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reg = btn.dataset.reg;
+          const name = btn.dataset.name;
+          confirmDeleteStudent(reg, name);
+        });
+      });
+    } else {
+      const list = (dbFacultiesCache || []).filter(f => {
+        if (!dbSearchQuery) return true;
+        const q = dbSearchQuery;
+        return (
+          (f.name && f.name.toLowerCase().includes(q)) ||
+          (f.email && f.email.toLowerCase().includes(q)) ||
+          (f.specialization && f.specialization.toLowerCase().includes(q)) ||
+          String(f.id).includes(q)
+        );
+      });
+
+      if (!list.length) {
+        wrapper.innerHTML = `
+          <div style="text-align: center; padding: 35px 20px; color: var(--text-hint);">
+            ${dbSearchQuery ? `No faculties found matching "<b>${esc(dbSearchQuery)}</b>"` : 'No faculty records in the database.'}
+          </div>
+        `;
+        return;
+      }
+
+      wrapper.innerHTML = `
+        <div class="table-responsive">
+          <table class="alloc-table" style="margin-bottom: 0;">
+            <thead>
+              <tr>
+                <th style="width: 50px; text-align: center;">ID</th>
+                <th>Faculty Name</th>
+                <th>Institutional Email</th>
+                <th>Domain / Specialization</th>
+                <th style="width: 90px; text-align: center;">Capacity</th>
+                <th style="width: 130px; text-align: center;">Allocated / Left</th>
+                <th style="width: 90px; text-align: center;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(f => `
+                <tr>
+                  <td style="text-align: center; font-weight: 600; color: var(--text-hint);">#${f.id}</td>
+                  <td><b>${esc(f.name)}</b></td>
+                  <td><span style="font-size: 12.5px; color: var(--text-secondary);">${esc(f.email || '—')}</span></td>
+                  <td><span class="domain-chip">${esc(f.specialization || 'General')}</span></td>
+                  <td style="text-align: center;"><b>${f.capacity}</b> seats</td>
+                  <td style="text-align: center;">
+                    <span style="font-weight: 600; font-size: 12.5px; color: ${f.remaining === 0 ? 'var(--error)' : 'var(--ok)'};">
+                      ${f.selected_count} / ${f.remaining} left
+                    </span>
+                  </td>
+                  <td style="text-align: center; white-space: nowrap;">
+                    <button class="icon-btn edit-faculty-btn" data-fid="${f.id}" title="Edit Faculty">✏️</button>
+                    ${f.selected_count === 0 ? `
+                      <button class="icon-btn icon-btn-delete delete-faculty-btn" data-fid="${f.id}" data-name="${esc(f.name)}" title="Delete Faculty">🗑️</button>
+                    ` : ''}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="hint" style="text-align: right; margin-top: 10px; font-size: 12px;">
+          Showing ${list.length} of ${dbFacultiesCache.length} faculties (${list.reduce((acc, x) => acc + x.capacity, 0)} total seats)
+        </div>
+      `;
+
+      wrapper.querySelectorAll('.edit-faculty-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const fid = Number(btn.dataset.fid);
+          const fac = dbFacultiesCache.find(x => x.id === fid);
+          if (fac) openFacultyModal(fac);
+        });
+      });
+
+      wrapper.querySelectorAll('.delete-faculty-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const fid = Number(btn.dataset.fid);
+          const name = btn.dataset.name;
+          confirmDeleteFaculty(fid, name);
+        });
+      });
+    }
+  }
+
+  function openStudentModal(student) {
+    const isEdit = Boolean(student);
+    const title = isEdit ? `✏️ Edit Student (${esc(student.register_no)})` : `➕ Add New Student`;
+    const bodyHtml = `
+      <div class="modal-field">
+        <label for="mStuRegNo">Register Number *</label>
+        <input type="text" id="mStuRegNo" placeholder="e.g. 7376257MB144" value="${esc(student ? student.register_no : '')}" style="text-transform: uppercase;">
+      </div>
+      <div class="modal-field">
+        <label for="mStuName">Full Name *</label>
+        <input type="text" id="mStuName" placeholder="e.g. Suganesan S" value="${esc(student ? student.name : '')}">
+      </div>
+      <div class="modal-field">
+        <label for="mStuEmail">Institutional Email</label>
+        <input type="email" id="mStuEmail" placeholder="e.g. suganesans.mb25@bitsathy.ac.in" value="${esc(student ? student.email : '')}">
+      </div>
+      ${isEdit ? `
+        <div class="modal-note">
+          <b>Note:</b> If you update the register number or name, any active guide selection will be automatically updated in real time.
+        </div>
+      ` : `
+        <div class="modal-note">
+          The student will be instantly authorized to sign in using their institutional email ID.
+        </div>
+      `}
+    `;
+
+    showModal({
+      title,
+      bodyHtml,
+      confirmText: isEdit ? 'Save Changes' : 'Add Student',
+      onConfirm: async (backdrop) => {
+        const reg = backdrop.querySelector('#mStuRegNo').value.trim().toUpperCase();
+        const name = backdrop.querySelector('#mStuName').value.trim();
+        const email = backdrop.querySelector('#mStuEmail').value.trim().toLowerCase();
+
+        if (!reg) {
+          toast('Please enter a register number.');
+          return false;
+        }
+        if (!name) {
+          toast('Please enter the student name.');
+          return false;
+        }
+
+        const payload = {
+          old_register_no: isEdit ? student.register_no : null,
+          register_no: reg,
+          name: name,
+          email: email || null,
+        };
+
+        const res = await api('POST', '/api/admin/database/students/save', payload);
+        if (!res.ok) {
+          toast(res.data.message || 'Failed to save student.');
+          return false;
+        }
+
+        toast(isEdit ? 'Student updated successfully!' : 'New student added!');
+        dbStudentsCache = null;
+        await loadDatabaseData();
+        return true;
+      }
+    });
+  }
+
+  function confirmDeleteStudent(reg, name) {
+    showModal({
+      title: `🗑️ Delete Student`,
+      bodyHtml: `
+        <p style="margin: 0; color: var(--text-primary); line-height: 1.5;">
+          Are you sure you want to remove <b>${esc(name)} (${esc(reg)})</b> from the database?
+        </p>
+        <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
+          If this student has already chosen a guide, their seat will be freed and their selection record will be removed.
+        </div>
+      `,
+      confirmText: 'Delete Student',
+      confirmBtnClass: 'btn-primary',
+      onConfirm: async () => {
+        const res = await api('POST', '/api/admin/database/students/delete', { register_no: reg });
+        if (!res.ok) {
+          toast(res.data.message || 'Failed to delete student.');
+          return false;
+        }
+        toast(`Student ${reg} deleted.`);
+        dbStudentsCache = null;
+        await loadDatabaseData();
+        const rMe = await api('GET', '/api/director/overview');
+        if (rMe.ok) me.master_overview = rMe.data.master_overview;
+        return true;
+      }
+    });
+  }
+
+  function openFacultyModal(fac) {
+    const isEdit = Boolean(fac);
+    const title = isEdit ? `✏️ Edit Faculty (${esc(fac.name)})` : `➕ Add New Faculty Guide`;
+    const minCap = (fac && fac.selected_count) ? fac.selected_count : 1;
+    const bodyHtml = `
+      <div class="modal-field">
+        <label for="mFacName">Faculty Name *</label>
+        <input type="text" id="mFacName" placeholder="e.g. Dr Saraswathi C" value="${esc(fac ? fac.name : '')}">
+      </div>
+      <div class="modal-field">
+        <label for="mFacEmail">Institutional Email</label>
+        <input type="email" id="mFacEmail" placeholder="e.g. saraswathic@bitsathy.ac.in" value="${esc(fac ? fac.email : '')}">
+      </div>
+      <div class="modal-field">
+        <label for="mFacSpec">Domain / Specialization *</label>
+        <input type="text" id="mFacSpec" placeholder="e.g. HR & Marketing" value="${esc(fac ? fac.specialization : '')}">
+      </div>
+      <div class="modal-field">
+        <label for="mFacCap">Seat Capacity *</label>
+        <input type="number" id="mFacCap" min="${minCap}" max="20" value="${fac ? fac.capacity : 5}">
+        ${isEdit ? `
+          <div style="font-size: 11.5px; color: var(--text-hint); margin-top: 2px;">
+            Currently allocated: ${fac.selected_count} student(s). Capacity cannot be below ${minCap}.
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    showModal({
+      title,
+      bodyHtml,
+      confirmText: isEdit ? 'Save Faculty' : 'Add Faculty',
+      onConfirm: async (backdrop) => {
+        const name = backdrop.querySelector('#mFacName').value.trim();
+        const email = backdrop.querySelector('#mFacEmail').value.trim().toLowerCase();
+        const spec = backdrop.querySelector('#mFacSpec').value.trim();
+        const cap = Number(backdrop.querySelector('#mFacCap').value);
+
+        if (!name) {
+          toast('Please enter the faculty name.');
+          return false;
+        }
+        if (!cap || cap < minCap) {
+          toast(`Capacity must be at least ${minCap}.`);
+          return false;
+        }
+
+        const payload = {
+          id: isEdit ? fac.id : null,
+          name: name,
+          email: email || null,
+          specialization: spec,
+          capacity: cap,
+        };
+
+        const res = await api('POST', '/api/admin/database/faculties/save', payload);
+        if (!res.ok) {
+          toast(res.data.message || 'Failed to save faculty.');
+          return false;
+        }
+
+        toast(isEdit ? 'Faculty details updated!' : 'New faculty added!');
+        dbFacultiesCache = null;
+        await loadDatabaseData();
+        const rMe = await api('GET', '/api/director/overview');
+        if (rMe.ok) me.master_overview = rMe.data.master_overview;
+        return true;
+      }
+    });
+  }
+
+  function confirmDeleteFaculty(fid, name) {
+    showModal({
+      title: `🗑️ Delete Faculty`,
+      bodyHtml: `
+        <p style="margin: 0; color: var(--text-primary); line-height: 1.5;">
+          Are you sure you want to remove <b>${esc(name)} (ID #${fid})</b> from the faculty list?
+        </p>
+        <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
+          This faculty has 0 allocated students and can be safely deleted.
+        </div>
+      `,
+      confirmText: 'Delete Faculty',
+      confirmBtnClass: 'btn-primary',
+      onConfirm: async () => {
+        const res = await api('POST', '/api/admin/database/faculties/delete', { id: fid });
+        if (!res.ok) {
+          toast(res.data.message || 'Failed to delete faculty.');
+          return false;
+        }
+        toast(`Faculty ${name} removed.`);
+        dbFacultiesCache = null;
+        await loadDatabaseData();
+        const rMe = await api('GET', '/api/director/overview');
+        if (rMe.ok) me.master_overview = rMe.data.master_overview;
+        return true;
+      }
+    });
+  }
+
 
   function renderMyAllocatedStudentsTab(container) {
     const dash = me.faculty_dashboard;
