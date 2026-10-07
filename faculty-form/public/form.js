@@ -99,10 +99,11 @@
   function accountBar() {
     const isDirector = me && me.role === 'director';
     const isFac = me && me.role === 'faculty';
-    const isAdmin = me && me.is_admin;
+    const isAdmin = me && Boolean(me.is_admin);
     let subtitle = ' · Responses recorded to class roster';
     if (isDirector) subtitle = ' · Director Portal';
     else if (isFac) subtitle = ' · Faculty Portal' + (isAdmin ? ' (Admin)' : '');
+    else if (isAdmin) subtitle = ' · Administrator';
 
     return `
       <div class="account-bar">
@@ -111,6 +112,7 @@
           <b>${esc(me.name || me.email)}</b>
           <small>${esc(me.email)}${subtitle}</small>
         </div>
+        ${isAdmin ? `<button class="preview-icon-btn" id="openAdminDashboardBtn" type="button" title="Open Admin Portal">${ico('list_alt')} Admin Portal</button>` : ''}
         ${(isFac || isDirector) ? `<button class="preview-icon-btn" id="openPreviewBtn" type="button" title="Preview Form">${ico('preview')} Preview</button>` : ''}
         <button class="link-btn" id="switchBtn" type="button">Switch account</button>
       </div>`;
@@ -126,6 +128,10 @@
         try { window.google && google.accounts.id.disableAutoSelect(); } catch (_) {}
         boot();
       });
+    }
+    const adminBtn = $('#openAdminDashboardBtn');
+    if (adminBtn) {
+      adminBtn.addEventListener('click', () => showDirectorDashboard('master'));
     }
     const prevBtn = $('#openPreviewBtn');
     if (prevBtn) {
@@ -420,6 +426,7 @@
           </div>
         </div>
 
+        <!--
         <div class="reset-box">
           <div>
             <div style="font-weight: 500; font-size: 13px; color: #b71c1c;">🧹 Reset Test Student Data</div>
@@ -429,6 +436,7 @@
             Reset Suganesan S (7376257MB144)
           </button>
         </div>
+        -->
       </div>`;
   }
 
@@ -477,6 +485,7 @@
       });
     }
 
+    /*
     const resetBtn = $('#resetTesterBtn');
     if (resetBtn) {
       resetBtn.addEventListener('click', async () => {
@@ -494,6 +503,7 @@
         }
       });
     }
+    */
   }
 
   // ============================================================
@@ -520,8 +530,8 @@
       <div class="title-card">
         <div class="accent"></div>
         <div class="title-body">
-          <h1>Director Portal</h1>
-          <p class="muted">Master guide selection overview for <b>Dr Murugappan S (Director)</b>. All faculty allocations and student choices in real-time.</p>
+          <h1>${me && me.role === 'director' ? 'Director Portal' : 'Admin Portal'}</h1>
+          <p class="muted">Master guide selection overview for <b>${esc(me && me.role === 'director' ? 'Dr Murugappan S (Director)' : (me.name || me.email))}</b>. All faculty allocations and student choices in real-time.</p>
         </div>
         ${accountBar()}
       </div>
@@ -557,6 +567,13 @@
         <button class="portal-tab ${activeTab === 'seats' ? 'active' : ''}" id="tabDirectorSeats" type="button">
           ⚙️ Seat Allocation & Quotas
         </button>
+        ${me && me.selection ? `
+        <button class="portal-tab" id="tabDirectorMySubmission" type="button">
+          ${ico('check_circle')} My Submission
+        </button>` : (me && me.role === 'student' ? `
+        <button class="portal-tab" id="tabDirectorSelectionForm" type="button">
+          ${ico('assignment')} Selection Form
+        </button>` : '')}
       </div>
 
       <div id="directorTabContent">
@@ -589,6 +606,17 @@
 
     $('#tabDirectorMaster').addEventListener('click', () => showDirectorDashboard('master'));
     $('#tabDirectorSeats').addEventListener('click', () => showDirectorDashboard('seats'));
+    const mySubBtn = $('#tabDirectorMySubmission');
+    if (mySubBtn) mySubBtn.addEventListener('click', () => showDone(me.selection, true));
+    const selFormBtn = $('#tabDirectorSelectionForm');
+    if (selFormBtn) {
+      selFormBtn.addEventListener('click', () => {
+        stopTimers();
+        if (me.selection) return showDone(me.selection, true);
+        if (!me.is_open) return showClosed();
+        return showForm(me.attempt);
+      });
+    }
 
     if (activeTab === 'master') {
       const refBtn = $('#refreshDirectorBtn');
@@ -1386,17 +1414,19 @@
         <div class="detail-row"><div class="k">Register number</div><div class="v">${esc(sel.register_no)}</div></div>
         <div class="detail-row"><div class="k">Submitted at</div><div class="v">${esc(sel.time)} IST</div></div>
         <div class="detail-row"><div class="k">Response no.</div><div class="v">#${esc(sel.seq)}</div></div>
-
-        ${isSuganesan ? `
-        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border); text-align: center;">
-          <button class="btn-text" id="resetMyTestDataBtn" type="button" style="color: #d93025; font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
-            ${ico('delete')} Reset My Selection (7376257MB144) to Test Again
-          </button>
-          <div class="hint" style="font-size: 12px; margin-top: 4px;">Clicking this resets your test submission so you can test the form flow again.</div>
-        </div>` : ''}
       </div>
       <div class="form-note">Selections can't be changed. Contact your coordinator if something is wrong.</div>`;
     bindSwitch();
+
+    /*
+    // Reset selection test button (hidden from UI, preserved in code as comments):
+    // ${isSuganesan ? `
+    // <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border); text-align: center;">
+    //   <button class="btn-text" id="resetMyTestDataBtn" type="button" style="color: #d93025; font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
+    //     ${ico('delete')} Reset My Selection (7376257MB144) to Test Again
+    //   </button>
+    //   <div class="hint" style="font-size: 12px; margin-top: 4px;">Clicking this resets your test submission so you can test the form flow again.</div>
+    // </div>` : ''}
 
     const resetSelfBtn = $('#resetMyTestDataBtn');
     if (resetSelfBtn) {
@@ -1415,6 +1445,7 @@
         setTimeout(() => boot(), 400);
       });
     }
+    */
   }
 
   // Keyboard navigation (1-9 and 0 for #10)

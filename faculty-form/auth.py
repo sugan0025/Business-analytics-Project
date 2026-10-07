@@ -17,7 +17,7 @@ class AuthError(Exception):
 _google_request = None
 
 DIRECTOR_EMAILS = {"murugappans@bitsathy.ac.in"}
-ADMIN_EMAILS = {"murugappans@bitsathy.ac.in", "suganeshs@bitsathy.ac.in"}
+ADMIN_EMAILS = {"murugappans@bitsathy.ac.in", "suganeshs@bitsathy.ac.in", "suganesans.mb25@bitsathy.ac.in"}
 
 DEFAULT_FACULTY_MAP = {
     "adhinarayananb@bitsathy.ac.in": 2,
@@ -147,9 +147,10 @@ def identify(engine, email: str, display_name: str, settings) -> dict:
     with engine.connect() as conn:
         row = conn.execute(select(students).where(students.c.email == email)).mappings().first()
     if row is not None:
+        is_admin = (email in ADMIN_EMAILS) or (row["register_no"] == "7376257MB144")
         return {
             "role": "student",
-            "is_admin": False,
+            "is_admin": is_admin,
             "email": email,
             "name": row["name"],
             "register_no": row["register_no"],
@@ -158,8 +159,10 @@ def identify(engine, email: str, display_name: str, settings) -> dict:
     mode = roster_mode(engine)
     if mode == "strict":
         raise AuthError("not_on_roster", "This email is not on the class list. Contact your coordinator.")
+    is_admin = (email in ADMIN_EMAILS) or (email.startswith("suganesans.mb25"))
     return {
         "role": "student",
+        "is_admin": is_admin,
         "email": email,
         "name": display_name or email.split("@")[0],
         "register_no": None,
