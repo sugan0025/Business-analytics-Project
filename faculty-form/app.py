@@ -317,11 +317,14 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 "sheets_configured": bool(settings.service_account_json or settings.service_account_file),
                 "database": "postgres" if not settings.database_url.startswith("sqlite") else "sqlite"}
         try:
-            with get_engine().connect() as conn:
+            eng = get_engine()
+            with eng.connect() as conn:
                 conn.execute(text("SELECT 1"))
+            data, etag = get_cached_availability(eng, max_age=0.0)
+            info["faculty_count"] = len(data)
             info["database_ok"] = True
         except Exception as exc:
-            info.update(ok=False, database_ok=False, error=str(exc)[:200])
+            info.update(ok=False, database_ok=False, error=str(exc))
             return jsonify(info), 500
         return jsonify(info)
 
@@ -718,8 +721,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if isinstance(e, HTTPException):
             return e
         log.exception("Unhandled error")
-        msg = str(e) if isinstance(e, RuntimeError) else "Something went wrong. Please try again."
-        return err("server_error", msg, 500)
+        return err("server_error", str(e), 500)
 
     @app.after_request
     def headers(resp):

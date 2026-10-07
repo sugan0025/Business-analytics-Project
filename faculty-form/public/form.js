@@ -1234,6 +1234,13 @@
       } else {
         updateOptions();
       }
+    } else if (!r.ok && !hasOptions) {
+      const box = $('#options');
+      if (box) {
+        box.innerHTML = `<div style="padding:14px;color:var(--error);font-size:13px;text-align:center;">Could not load faculty options. <button type="button" class="btn-text" id="retryAvailBtn" style="margin-left:6px;font-size:13px;">Retry</button></div>`;
+        const retryBtn = $('#retryAvailBtn');
+        if (retryBtn) retryBtn.addEventListener('click', () => refreshAvailability());
+      }
     }
   }
 

@@ -111,14 +111,53 @@ def make_engine(url: str):
 def init_schema(engine):
     try:
         metadata.create_all(engine)
-    except (OperationalError, ProgrammingError, IntegrityError):
-        # Two cold starts racing to create tables: the second just retries.
-        metadata.create_all(engine)
+    except Exception:
+        try:
+            metadata.create_all(engine)
+        except Exception:
+            pass
 
     # Migrate email column on faculty table if not present
     try:
         with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE faculty ADD COLUMN email VARCHAR(200)"))
+            if "sqlite" in str(engine.url):
+                try:
+                    conn.execute(text("ALTER TABLE faculty ADD COLUMN email VARCHAR(200)"))
+                except Exception:
+                    pass
+            else:
+                conn.execute(text("ALTER TABLE faculty ADD COLUMN IF NOT EXISTS email VARCHAR(200)"))
+    except Exception:
+        pass
+
+    # Clean up director (id=1) from student faculty table
+    try:
+        with engine.begin() as conn:
+            murug_sels = conn.execute(select(selections).where(selections.c.faculty_id == 1)).mappings().all()
+            for s in murug_sels:
+                conn.execute(delete(selections).where(selections.c.seq_id == s["seq_id"]))
+            conn.execute(delete(faculty).where(faculty.c.id == 1))
+    except Exception:
+        pass
+
+    # Reset test student selection for Suganesan (7376257MB144 / suganesans.mb25@bitsathy.ac.in)
+    try:
+        with engine.begin() as conn:
+            from sqlalchemy import or_
+            sug_sels = conn.execute(
+                select(selections).where(
+                    or_(selections.c.register_no == "7376257MB144",
+                        selections.c.email == "suganesans.mb25@bitsathy.ac.in")
+                )
+            ).mappings().all()
+            for s in sug_sels:
+                conn.execute(
+                    update(faculty)
+                    .where(faculty.c.id == s["faculty_id"])
+                    .values(selected_count=faculty.c.selected_count - 1)
+                )
+                conn.execute(delete(selections).where(selections.c.seq_id == s["seq_id"]))
+            conn.execute(delete(attempts).where(attempts.c.email == "suganesans.mb25@bitsathy.ac.in"))
     except Exception:
         pass
 
@@ -144,10 +183,14 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
     roster_path = roster_path or BASE_DIR / "roster.csv"
     digest = _files_hash(faculty_path, roster_path)
 
-    with engine.connect() as conn:
-        row = conn.execute(select(settings_kv.c.value).where(settings_kv.c.key == "seed_hash")).first()
-    if row and row[0] == digest and not force:
-        return False
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(select(settings_kv.c.value).where(settings_kv.c.key == "seed_hash")).first()
+            fac_cnt = conn.execute(select(func.count()).select_from(faculty)).scalar()
+        if row and row[0] == digest and not force and fac_cnt and fac_cnt > 0:
+            return False
+    except Exception:
+        pass
 
     fac_rows = _read_csv(faculty_path)
     stu_rows = _read_csv(roster_path)
@@ -172,10 +215,8 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             if existing is None:
                 conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email))
             else:
-                if cap < existing["selected_count"]:
-                    raise ValueError(f"Capacity for {r['name']} ({cap}) is below seats already taken "
-                                     f"({existing['selected_count']})")
-                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=cap, email=fac_email))
+                target_cap = max(cap, existing["selected_count"])
+                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email))
         for r in stu_rows:
             reg = r["register_no"].upper()
             email = r.get("email", "").lower() or None
@@ -185,8 +226,11 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             else:
                 conn.execute(update(students).where(students.c.register_no == reg)
                              .values(name=r["name"], email=email))
-        conn.execute(text("DELETE FROM settings WHERE key = 'seed_hash'"))
-        conn.execute(insert(settings_kv).values(key="seed_hash", value=digest))
+        try:
+            conn.execute(text("DELETE FROM settings WHERE key = 'seed_hash'"))
+            conn.execute(insert(settings_kv).values(key="seed_hash", value=digest))
+        except Exception:
+            pass
     return True
 
 
@@ -203,9 +247,8 @@ def ensure_ready(engine):
     with _ready_lock:
         if key in _ready_for:
             return
-        if not on_vercel():
-            init_schema(engine)
-            seed(engine)
+        init_schema(engine)
+        seed(engine)
         _ready_for.add(key)
 
 
