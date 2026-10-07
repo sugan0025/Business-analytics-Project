@@ -16,8 +16,10 @@ class AuthError(Exception):
 
 _google_request = None
 
+DIRECTOR_EMAILS = {"murugappans@bitsathy.ac.in"}
+ADMIN_EMAILS = {"murugappans@bitsathy.ac.in", "suganeshs@bitsathy.ac.in"}
+
 DEFAULT_FACULTY_MAP = {
-    "murugappans@bitsathy.ac.in": 1,
     "adhinarayananb@bitsathy.ac.in": 2,
     "senthilkumar@bitsathy.ac.in": 4,
     "nandhinib@bitsathy.ac.in": 5,
@@ -68,13 +70,13 @@ def get_faculty_info(engine, email: str):
 
 
 def email_allowed(email: str, settings) -> bool:
-    """College pattern: faculty or student <name>.mb25@<domain>"""
+    """College pattern: director, faculty or student <name>.mb25@<domain>"""
     email = (email or "").strip().lower()
     local, _, domain = email.partition("@")
     if domain != settings.email_domain:
         return False
-    # Known faculty or college staff without student suffix
-    if email in DEFAULT_FACULTY_MAP or not local.endswith(settings.email_local_suffix):
+    # Director or known faculty or college staff without student suffix
+    if email in DIRECTOR_EMAILS or email in DEFAULT_FACULTY_MAP or not local.endswith(settings.email_local_suffix):
         return True
     suffix = settings.email_local_suffix
     if not local.endswith(suffix) or len(local) <= len(suffix):
@@ -99,11 +101,26 @@ def identify(engine, email: str, display_name: str, settings) -> dict:
             f"Please sign in with your college email (@{settings.email_domain}).",
         )
 
-    # 1. Faculty Identification
+    # 1. Director Identification
+    if email in DIRECTOR_EMAILS:
+        return {
+            "role": "director",
+            "is_admin": True,
+            "email": email,
+            "name": "Dr Murugappan S (Director)",
+            "faculty_id": None,
+            "capacity": 0,
+            "register_no": None,
+            "mode": "director",
+        }
+
+    # 2. Faculty Identification
+    is_admin = email in ADMIN_EMAILS
     fac = get_faculty_info(engine, email)
     if fac is not None:
         return {
             "role": "faculty",
+            "is_admin": is_admin,
             "email": email,
             "name": fac["name"],
             "faculty_id": fac["id"],
@@ -117,6 +134,7 @@ def identify(engine, email: str, display_name: str, settings) -> dict:
         clean_name = display_name or local.replace(".", " ").title()
         return {
             "role": "faculty",
+            "is_admin": is_admin,
             "email": email,
             "name": clean_name,
             "faculty_id": None,
@@ -125,12 +143,13 @@ def identify(engine, email: str, display_name: str, settings) -> dict:
             "mode": "faculty",
         }
 
-    # 2. Student Identification
+    # 3. Student Identification
     with engine.connect() as conn:
         row = conn.execute(select(students).where(students.c.email == email)).mappings().first()
     if row is not None:
         return {
             "role": "student",
+            "is_admin": False,
             "email": email,
             "name": row["name"],
             "register_no": row["register_no"],

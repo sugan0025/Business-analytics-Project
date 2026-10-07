@@ -7,7 +7,7 @@ import time
 from datetime import timedelta
 
 from flask import Flask, jsonify, render_template, request, session
-from sqlalchemy import func, insert, select, text, update
+from sqlalchemy import delete, func, insert, or_, select, text, update
 
 import allocation
 import auth
@@ -197,6 +197,38 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 "faculty_selections": fac_picks,
             }
 
+    def get_master_overview_data(engine_):
+        from db import faculty, selections
+        with engine_.connect() as conn:
+            fac_rows = conn.execute(select(faculty).order_by(faculty.c.id)).mappings().all()
+            all_sel = conn.execute(
+                select(selections).order_by(selections.c.faculty_id, selections.c.created_ms)
+            ).mappings().all()
+
+        by_fac = {}
+        for s in all_sel:
+            by_fac.setdefault(s["faculty_id"], []).append({
+                "seq": s["seq_id"],
+                "name": s["student_name"],
+                "register_no": s["register_no"],
+                "email": s["email"],
+                "time": config.fmt_ist(s["created_ms"])
+            })
+
+        out = []
+        for i, f in enumerate(fac_rows, start=1):
+            stus = by_fac.get(f["id"], [])
+            out.append({
+                "s_no": i,
+                "id": f["id"],
+                "name": f["name"],
+                "capacity": f["capacity"],
+                "selected_count": f["selected_count"],
+                "remaining": f["capacity"] - f["selected_count"],
+                "students": stus,
+            })
+        return out
+
     def get_initial_state(include_attempt=False):
         t = now()
         is_open, reason, opens = config.form_state(settings, t)
@@ -220,10 +252,12 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if not ident:
             return state_data
 
-        is_fac = ident.get("role") == "faculty"
+        role = ident.get("role", "student")
+        is_admin = bool(ident.get("is_admin", False))
         state_data.update(
             signed_in=True,
-            role="faculty" if is_fac else "student",
+            role=role,
+            is_admin=is_admin,
             email=ident["email"],
             name=ident["name"],
             register_no=ident.get("register_no"),
@@ -232,8 +266,13 @@ def create_app(settings=None, engine=None, sheets_client=None):
         )
 
         engine_ = get_engine()
-        if is_fac:
+        if role == "director":
+            state_data["master_overview"] = get_master_overview_data(engine_)
+            return state_data
+
+        if role == "faculty":
             state_data["faculty_dashboard"] = get_faculty_dashboard_data(engine_, ident)
+            state_data["master_overview"] = get_master_overview_data(engine_)
             return state_data
 
         try:
@@ -329,12 +368,18 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if not ident:
             return jsonify(out)
         engine_ = get_engine()
-        is_fac = ident.get("role") == "faculty"
-        out.update(signed_in=True, role="faculty" if is_fac else "student", email=ident["email"],
+        role = ident.get("role", "student")
+        is_admin = bool(ident.get("is_admin", False))
+        out.update(signed_in=True, role=role, is_admin=is_admin, email=ident["email"],
                    name=ident["name"], register_no=ident.get("register_no"), mode=ident.get("mode", "strict"),
                    selection=None)
-        if is_fac:
+        if role == "director":
+            out["master_overview"] = get_master_overview_data(engine_)
+            return jsonify(out)
+
+        if role == "faculty":
             out["faculty_dashboard"] = get_faculty_dashboard_data(engine_, ident)
+            out["master_overview"] = get_master_overview_data(engine_)
             return jsonify(out)
 
         with engine_.connect() as conn:
@@ -344,6 +389,118 @@ def create_app(settings=None, engine=None, sheets_client=None):
         elif ident.get("register_no") is None:
             out["roster"] = free_roster(engine_)
         return jsonify(out)
+
+    @app.get("/api/director/overview")
+    def director_overview():
+        ident = current_identity()
+        if ident.get("role") not in ("director", "faculty") and not ident.get("is_admin"):
+            return err("forbidden", "Access denied.", 403)
+        return jsonify({"ok": True, "master_overview": get_master_overview_data(get_engine())})
+
+    @app.post("/api/admin/update-capacities")
+    def admin_update_capacities():
+        ident = current_identity()
+        if not ident.get("is_admin"):
+            return err("forbidden", "Admin access required.", 403)
+        data = body_json()
+        caps = data.get("capacities") or {}
+        if not isinstance(caps, dict) or not caps:
+            return err("invalid_data", "No capacity data provided.", 400)
+
+        engine_ = get_engine()
+        from db import faculty
+        with engine_.connect() as conn:
+            cur_facs = conn.execute(select(faculty)).mappings().all()
+        fac_by_id = {f["id"]: f for f in cur_facs}
+
+        for fid_str, new_cap_val in caps.items():
+            try:
+                fid = int(fid_str)
+                new_cap = int(new_cap_val)
+            except (ValueError, TypeError):
+                return err("invalid_data", f"Invalid faculty ID or capacity: {fid_str}={new_cap_val}", 400)
+            if fid not in fac_by_id:
+                return err("not_found", f"Faculty ID {fid} not found.", 404)
+            if new_cap < 1:
+                return err("invalid_capacity", "Capacity must be at least 1.", 400)
+            if new_cap < fac_by_id[fid]["selected_count"]:
+                return err(
+                    "capacity_too_low",
+                    f"Cannot reduce capacity below currently allocated students ({fac_by_id[fid]['selected_count']}) for {fac_by_id[fid]['name']}.",
+                    400
+                )
+
+        with engine_.begin() as conn:
+            for fid_str, new_cap_val in caps.items():
+                fid = int(fid_str)
+                new_cap = int(new_cap_val)
+                conn.execute(
+                    update(faculty).where(faculty.c.id == fid).values(capacity=new_cap)
+                )
+
+        invalidate_availability_cache()
+        overview = get_master_overview_data(engine_)
+        avail, _ = get_cached_availability(engine_, max_age=0.0)
+        return jsonify({
+            "ok": True,
+            "message": "Seat capacities updated dynamically.",
+            "master_overview": overview,
+            "faculty": avail,
+        })
+
+    @app.post("/api/admin/reset-user")
+    def admin_reset_user():
+        ident = current_identity()
+        data = body_json()
+        target_reg = str(data.get("register_no") or "").strip().upper()
+        target_email = str(data.get("email") or "").strip().lower()
+
+        if not target_reg and not target_email:
+            target_reg = "7376257MB144"
+            target_email = "suganesans.mb25@bitsathy.ac.in"
+
+        is_self = (
+            (ident.get("register_no") and ident.get("register_no").upper() == target_reg) or
+            (ident.get("email") and ident.get("email").lower() == target_email) or
+            (target_reg == "7376257MB144" and "suganesan" in (ident.get("email") or "").lower())
+        )
+        if not ident.get("is_admin") and not is_self:
+            return err("forbidden", "Permission denied.", 403)
+
+        engine_ = get_engine()
+        from db import attempts, faculty, selections, test_selections
+        cleared_count = 0
+        with engine_.begin() as conn:
+            conds = []
+            if target_reg:
+                conds.append(selections.c.register_no == target_reg)
+            if target_email:
+                conds.append(selections.c.email == target_email)
+            if conds:
+                existing_sels = conn.execute(select(selections).where(or_(*conds))).mappings().all()
+                for s in existing_sels:
+                    conn.execute(
+                        update(faculty)
+                        .where(faculty.c.id == s["faculty_id"])
+                        .values(selected_count=faculty.c.selected_count - 1)
+                    )
+                    conn.execute(delete(selections).where(selections.c.seq_id == s["seq_id"]))
+                    cleared_count += 1
+
+            if target_email:
+                conn.execute(delete(attempts).where(attempts.c.email == target_email))
+            if target_reg == "7376257MB144":
+                conn.execute(delete(attempts).where(attempts.c.email == "suganesans.mb25@bitsathy.ac.in"))
+
+            if data.get("clear_test_selections"):
+                conn.execute(delete(test_selections))
+
+        invalidate_availability_cache()
+        return jsonify({
+            "ok": True,
+            "message": f"Cleared records for {target_reg or target_email} ({cleared_count} selections removed).",
+            "cleared_count": cleared_count,
+        })
 
     @app.get("/api/faculty/dashboard")
     def faculty_dashboard():

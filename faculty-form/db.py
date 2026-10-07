@@ -5,7 +5,7 @@ import threading
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData, String, Table, Text,
-    create_engine, event, insert, select, text, update,
+    create_engine, delete, event, insert, select, text, update,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.pool import NullPool
@@ -163,6 +163,8 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
         raise ValueError(f"Total faculty capacity ({total_capacity}) is less than students ({len(stu_rows)})")
 
     with engine.begin() as conn:
+        current_fids = [int(r["id"]) for r in fac_rows]
+        conn.execute(delete(faculty).where(~faculty.c.id.in_(current_fids), faculty.c.selected_count == 0))
         for r in fac_rows:
             fid, cap = int(r["id"]), int(r["capacity"])
             fac_email = r.get("email", "").strip().lower() or None

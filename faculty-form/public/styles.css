@@ -570,6 +570,192 @@ select.text-input:focus { border-color: var(--primary); }
   border-color: var(--error);
 }
 
+/* ---- Master Overview Table (Google Forms Purple Theme) ---- */
+.master-fac-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+.master-fac-table th {
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 500;
+  padding: 11px 14px;
+  border: 1px solid #5b2fa8;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+.master-fac-table th:first-child {
+  border-top-left-radius: 6px;
+}
+.master-fac-table th:last-child {
+  border-top-right-radius: 6px;
+}
+.master-fac-table td {
+  padding: 10px 14px;
+  border: 1px solid #e0d7f5;
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+.master-fac-table tr:hover td:not(.merged-cell) {
+  background: #fdfcfe;
+}
+.master-fac-table .merged-cell {
+  vertical-align: top;
+  background: #fbf9fe;
+  border-right: 1.5px solid #d1c4e9;
+  border-bottom: 1.5px solid #d1c4e9;
+}
+.master-fac-table .s-no-cell {
+  text-align: center;
+  font-weight: 600;
+  color: var(--primary);
+  width: 50px;
+}
+.master-fac-table .fac-name-cell {
+  width: 220px;
+  color: #202124;
+}
+.fac-meta-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--text-secondary);
+}
+.fac-meta-sub .badge-full {
+  color: var(--error);
+  font-weight: 600;
+}
+.fac-meta-sub .badge-avail {
+  color: var(--ok);
+  font-weight: 500;
+}
+.empty-muted {
+  color: var(--text-hint);
+  font-style: italic;
+  padding: 14px;
+  background: #fff;
+}
+
+/* ---- Nav Tabs in Portals ---- */
+.portal-tabs {
+  display: flex;
+  background: #f1f3f4;
+  padding: 4px;
+  border-radius: 24px;
+  gap: 4px;
+  margin-bottom: 16px;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.portal-tab {
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.portal-tab.active {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.portal-tab:not(.active):hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ---- Seat Allocation Management Card ---- */
+.seat-alloc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  padding: 24px;
+  margin-bottom: 12px;
+}
+.seat-alloc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.total-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f3e8fd;
+  color: var(--primary);
+}
+.total-badge.warn {
+  background: #fce8e6;
+  color: var(--error);
+}
+.total-badge.ok {
+  background: #e6f4ea;
+  color: var(--ok);
+}
+.alloc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.alloc-table th {
+  background: #f8f9fa;
+  color: var(--text-secondary);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.alloc-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f3f4;
+  vertical-align: middle;
+}
+.cap-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  min-width: 70px;
+}
+.cap-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(103, 58, 183, 0.2);
+}
+.reset-box {
+  background: #fef7f6;
+  border: 1px dashed #fad2cf;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 @media (max-width: 520px) {
   .form-view { padding: 0 8px; margin-top: 8px; }
   .card { padding: 18px 16px; }

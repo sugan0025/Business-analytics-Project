@@ -96,15 +96,21 @@
   }
 
   function accountBar() {
+    const isDirector = me && me.role === 'director';
     const isFac = me && me.role === 'faculty';
+    const isAdmin = me && me.is_admin;
+    let subtitle = ' · Responses recorded to class roster';
+    if (isDirector) subtitle = ' · Director Portal';
+    else if (isFac) subtitle = ' · Faculty Portal' + (isAdmin ? ' (Admin)' : '');
+
     return `
       <div class="account-bar">
         ${ico('account_circle')}
         <div class="who">
           <b>${esc(me.name || me.email)}</b>
-          <small>${esc(me.email)}${isFac ? ' · Faculty Portal' : ' · Responses recorded to class roster'}</small>
+          <small>${esc(me.email)}${subtitle}</small>
         </div>
-        ${isFac ? `<button class="preview-icon-btn" id="openPreviewBtn" type="button" title="Preview Form">${ico('preview')} Preview</button>` : ''}
+        ${(isFac || isDirector) ? `<button class="preview-icon-btn" id="openPreviewBtn" type="button" title="Preview Form">${ico('preview')} Preview</button>` : ''}
         <button class="link-btn" id="switchBtn" type="button">Switch account</button>
       </div>`;
   }
@@ -144,6 +150,7 @@
       if (me.etag) currentEtag = me.etag;
     }
     if (!me.signed_in) return showSignin();
+    if (me.role === 'director') return showDirectorDashboard();
     if (me.role === 'faculty') return showFacultyDashboard();
     if (me.selection) return showDone(me.selection, false);
     if (!me.is_open) return showClosed();
@@ -255,9 +262,346 @@
   }
 
   // ============================================================
+  // MASTER OVERVIEW & CAPACITY MANAGEMENT HELPERS
+  // ============================================================
+  function renderMasterOverviewTable(overview) {
+    if (!overview || !overview.length) {
+      return `
+        <div class="empty-table">
+          ${ico('account_circle')}
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 4px;">No faculty allocation data available</div>
+        </div>`;
+    }
+
+    let rowsHtml = '';
+    overview.forEach((f) => {
+      const stus = f.students || [];
+      const isFull = f.remaining <= 0;
+      const statusBadge = isFull
+        ? `<span class="badge-full">Full (${f.capacity}/${f.capacity})</span>`
+        : `<span class="badge-avail">${f.selected_count}/${f.capacity} filled (${f.remaining} left)</span>`;
+
+      if (stus.length > 0) {
+        const span = stus.length;
+        rowsHtml += `
+          <tr>
+            <td rowspan="${span}" class="merged-cell s-no-cell">${f.s_no}</td>
+            <td rowspan="${span}" class="merged-cell fac-name-cell">
+              <b>${esc(f.name)}</b>
+              <div class="fac-meta-sub">${statusBadge}</div>
+            </td>
+            <td><b>${esc(stus[0].name)}</b></td>
+            <td><span class="reg-chip">${esc(stus[0].register_no)}</span></td>
+            <td><span style="color: var(--text-secondary);">${esc(stus[0].email)}</span></td>
+          </tr>`;
+
+        for (let i = 1; i < stus.length; i++) {
+          rowsHtml += `
+            <tr>
+              <td><b>${esc(stus[i].name)}</b></td>
+              <td><span class="reg-chip">${esc(stus[i].register_no)}</span></td>
+              <td><span style="color: var(--text-secondary);">${esc(stus[i].email)}</span></td>
+            </tr>`;
+        }
+      } else {
+        rowsHtml += `
+          <tr>
+            <td class="merged-cell s-no-cell">${f.s_no}</td>
+            <td class="merged-cell fac-name-cell">
+              <b>${esc(f.name)}</b>
+              <div class="fac-meta-sub">${statusBadge}</div>
+            </td>
+            <td colspan="3" class="empty-muted">No students selected yet</td>
+          </tr>`;
+      }
+    });
+
+    return `
+      <div class="table-responsive">
+        <table class="master-fac-table">
+          <thead>
+            <tr>
+              <th style="width: 55px; text-align: center;">S.No</th>
+              <th style="width: 220px;">Faculty</th>
+              <th>Students</th>
+              <th>Register No</th>
+              <th>Mail ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderSeatAllocationCard(overview) {
+    if (!overview || !overview.length) return '';
+    const totalCap = overview.reduce((acc, f) => acc + (f.capacity || 0), 0);
+    const isBalanced = totalCap >= 44;
+
+    return `
+      <div class="seat-alloc-card">
+        <div class="seat-alloc-header">
+          <div>
+            <div class="q-title" style="margin-bottom: 4px;">⚙️ Manage Faculty Seat Capacities</div>
+            <div class="hint">Dynamically assign seat limits to guides. Changes take effect instantly on the live form.</div>
+          </div>
+          <div class="total-badge ${isBalanced ? 'ok' : 'warn'}" id="allocBadge">
+            Total Seats: <span id="allocTotalNum">${totalCap}</span> / 44
+          </div>
+        </div>
+
+        <div class="table-responsive" style="margin-bottom: 16px;">
+          <table class="alloc-table">
+            <thead>
+              <tr>
+                <th style="width: 45px;">#</th>
+                <th>Faculty Name</th>
+                <th>Current Status</th>
+                <th style="text-align: right;">Allotted Seats</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${overview.map(f => {
+                const opts = [];
+                for (let c = 1; c <= 10; c++) {
+                  const dis = c < f.selected_count ? 'disabled' : '';
+                  const disNote = c < f.selected_count ? ` (min ${f.selected_count})` : '';
+                  opts.push(`<option value="${c}" ${f.capacity === c ? 'selected' : ''} ${dis}>${c} seats${disNote}</option>`);
+                }
+                return `
+                  <tr>
+                    <td><b>${f.s_no}</b></td>
+                    <td><b>${esc(f.name)}</b></td>
+                    <td><span style="color: var(--text-secondary);">${f.selected_count} filled (${f.capacity - f.selected_count} left)</span></td>
+                    <td style="text-align: right;">
+                      <select class="cap-select" data-fid="${f.id}" data-min="${f.selected_count}">
+                        ${opts.join('')}
+                      </select>
+                    </td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <button class="btn-primary" id="saveCapBtn" type="button" style="padding: 10px 20px;">
+            Save Seat Capacities
+          </button>
+          <div class="hint" id="allocNote" style="font-size: 12px; font-weight: 500; color: ${isBalanced ? 'var(--ok)' : 'var(--error)'};">
+            ${isBalanced ? '✓ Total capacity accommodates all 44 students.' : '⚠️ Warning: Total seats (' + totalCap + ') less than 44 students.'}
+          </div>
+        </div>
+
+        <div class="reset-box">
+          <div>
+            <div style="font-weight: 500; font-size: 13px; color: #b71c1c;">🧹 Reset Test Student Data</div>
+            <div class="hint" style="font-size: 12px;">Clear selection & timer attempts for <b>Suganesan S (7376257MB144)</b> to re-test the form.</div>
+          </div>
+          <button class="btn-danger-sm" id="resetTesterBtn" type="button">
+            Reset Suganesan S (7376257MB144)
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function setupSeatAllocationHandlers(onRefresh) {
+    const selects = root.querySelectorAll('.cap-select');
+    const badge = $('#allocBadge');
+    const totalEl = $('#allocTotalNum');
+    const noteEl = $('#allocNote');
+
+    const updateSum = () => {
+      let sum = 0;
+      selects.forEach(s => sum += Number(s.value));
+      if (totalEl) totalEl.textContent = sum;
+      if (badge && noteEl) {
+        const ok = sum >= 44;
+        badge.className = 'total-badge ' + (ok ? 'ok' : 'warn');
+        noteEl.textContent = ok ? '✓ Total capacity accommodates all 44 students.' : '⚠️ Warning: Total seats (' + sum + ') less than 44 students.';
+        noteEl.style.color = ok ? 'var(--ok)' : 'var(--error)';
+      }
+      return sum;
+    };
+
+    selects.forEach(s => s.addEventListener('change', updateSum));
+
+    const saveBtn = $('#saveCapBtn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const sum = updateSum();
+        if (sum < 44) {
+          if (!confirm(`Warning: Total seats (${sum}) is less than the 44 students in class roster. Continue anyway?`)) {
+            return;
+          }
+        }
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        const caps = {};
+        selects.forEach(s => { caps[s.dataset.fid] = Number(s.value); });
+        const r = await api('POST', '/api/admin/update-capacities', { capacities: caps });
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Seat Capacities';
+        if (!r.ok) return toast(r.data.message || 'Failed to update capacities.');
+        toast('Seat capacities updated dynamically!');
+        me.master_overview = r.data.master_overview;
+        if (r.data.faculty) faculty = r.data.faculty;
+        if (onRefresh) onRefresh();
+      });
+    }
+
+    const resetBtn = $('#resetTesterBtn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', async () => {
+        resetBtn.disabled = true;
+        resetBtn.textContent = 'Resetting…';
+        const r = await api('POST', '/api/admin/reset-user', { register_no: '7376257MB144', email: 'suganesans.mb25@bitsathy.ac.in' });
+        resetBtn.disabled = false;
+        resetBtn.textContent = 'Reset Suganesan S (7376257MB144)';
+        if (!r.ok) return toast(r.data.message || 'Failed to reset.');
+        toast('Cleared test data for Suganesan S (7376257MB144)!');
+        const rMe = await api('GET', '/api/director/overview');
+        if (rMe.ok) {
+          me.master_overview = rMe.data.master_overview;
+          if (onRefresh) onRefresh();
+        }
+      });
+    }
+  }
+
+  // ============================================================
+  // DIRECTOR PORTAL (DR MURUGAPPAN S)
+  // ============================================================
+  async function showDirectorDashboard(activeTab = 'master') {
+    stopTimers();
+    let overview = me.master_overview;
+    if (!overview) {
+      const r = await api('GET', '/api/director/overview');
+      if (r.ok) {
+        overview = r.data.master_overview;
+        me.master_overview = overview;
+      }
+    }
+    overview = overview || [];
+
+    const totalStudents = 44;
+    const totalFilled = overview.reduce((acc, f) => acc + (f.selected_count || 0), 0);
+    const totalCap = overview.reduce((acc, f) => acc + (f.capacity || 0), 0);
+    const remainingStudents = Math.max(0, totalStudents - totalFilled);
+
+    root.innerHTML = `
+      <div class="title-card">
+        <div class="accent"></div>
+        <div class="title-body">
+          <h1>Director Portal</h1>
+          <p class="muted">Master guide selection overview for <b>Dr Murugappan S (Director)</b>. All faculty allocations and student choices in real-time.</p>
+        </div>
+        ${accountBar()}
+      </div>
+
+      <div class="card">
+        <div class="q-title" style="margin-bottom: 14px;">Class Allocation Overview (II MBA)</div>
+        <div class="fac-stat-grid">
+          <div class="fac-stat-card">
+            <div class="val">${totalStudents}</div>
+            <div class="lbl">Class Strength</div>
+          </div>
+          <div class="fac-stat-card">
+            <div class="val" style="color: var(--ok);">${totalFilled}</div>
+            <div class="lbl">Students Allocated</div>
+          </div>
+          <div class="fac-stat-card">
+            <div class="val" style="color: ${remainingStudents === 0 ? 'var(--ok)' : 'var(--primary)'};">${remainingStudents}</div>
+            <div class="lbl">Pending Choices</div>
+          </div>
+        </div>
+        <div class="meter-bar" style="height: 10px; margin-bottom: 4px;">
+          <div class="meter-fill" style="width: ${Math.round((totalFilled / totalStudents) * 100)}%;"></div>
+        </div>
+        <div class="hint" style="text-align: right; font-size: 12px; margin-top: 6px;">
+          ${totalFilled} of ${totalStudents} students selected (${totalCap} total faculty seats configured)
+        </div>
+      </div>
+
+      <div class="portal-tabs">
+        <button class="portal-tab ${activeTab === 'master' ? 'active' : ''}" id="tabDirectorMaster" type="button">
+          ${ico('list_alt')} Master Department Overview
+        </button>
+        <button class="portal-tab ${activeTab === 'seats' ? 'active' : ''}" id="tabDirectorSeats" type="button">
+          ⚙️ Seat Allocation & Quotas
+        </button>
+      </div>
+
+      <div id="directorTabContent">
+        ${activeTab === 'master' ? `
+          <div class="card">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div class="q-title" style="margin-bottom: 0;">Faculty-Wise Student Selections</div>
+              <button class="btn-text" id="refreshDirectorBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
+                ${ico('refresh')} Refresh Live
+              </button>
+            </div>
+            ${renderMasterOverviewTable(overview)}
+          </div>
+        ` : renderSeatAllocationCard(overview)}
+      </div>
+
+      <div class="card" style="text-align: center; padding: 22px;">
+        <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 14px;">
+          Want to preview the student form experience?
+        </div>
+        <button class="btn-primary" id="openPreviewCta" type="button" style="display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
+          ${ico('preview')} Open Form Preview
+        </button>
+      </div>
+    `;
+
+    bindSwitch();
+    const cta = $('#openPreviewCta');
+    if (cta) cta.addEventListener('click', () => showFacultyPreview('select_students'));
+
+    $('#tabDirectorMaster').addEventListener('click', () => showDirectorDashboard('master'));
+    $('#tabDirectorSeats').addEventListener('click', () => showDirectorDashboard('seats'));
+
+    if (activeTab === 'master') {
+      const refBtn = $('#refreshDirectorBtn');
+      if (refBtn) {
+        refBtn.addEventListener('click', async () => {
+          refBtn.textContent = 'Refreshing…';
+          const r = await api('GET', '/api/director/overview');
+          if (r.ok) {
+            me.master_overview = r.data.master_overview;
+            showDirectorDashboard('master');
+          }
+        });
+      }
+
+      // Auto-poll director overview every 4 seconds
+      pollTimer = setInterval(async () => {
+        if (document.hidden) return;
+        const r = await api('GET', '/api/director/overview');
+        if (r.ok) {
+          me.master_overview = r.data.master_overview;
+          const container = $('#directorTabContent');
+          if (container && $('#tabDirectorMaster').classList.contains('active')) {
+            const tableWrap = container.querySelector('.table-responsive');
+            if (tableWrap) {
+              tableWrap.outerHTML = renderMasterOverviewTable(r.data.master_overview);
+            }
+          }
+        }
+      }, 4000);
+    } else {
+      setupSeatAllocationHandlers(() => showDirectorDashboard('seats'));
+    }
+  }
+
+  // ============================================================
   // FACULTY PORTAL & DASHBOARD
   // ============================================================
-  async function showFacultyDashboard() {
+  async function showFacultyDashboard(activeTab = 'my_students') {
     stopTimers();
     let dash = me.faculty_dashboard;
     if (!dash) {
@@ -268,80 +612,109 @@
       }
     }
 
-    const fac = (dash && dash.faculty) || { name: me.name, capacity: 4, selected_count: 0, remaining: 4 };
+    const fac = (dash && dash.faculty) || { name: me.name, capacity: 5, selected_count: 0, remaining: 5 };
     const students = (dash && dash.students_selected) || [];
     const pct = fac.capacity > 0 ? Math.round((Math.max(0, fac.selected_count) / fac.capacity) * 100) : 0;
+    const overview = me.master_overview || [];
+    const isAdmin = Boolean(me.is_admin);
 
     root.innerHTML = `
       <div class="title-card">
         <div class="accent"></div>
         <div class="title-body">
           <h1>Faculty Portal</h1>
-          <p class="muted">Guide allocation overview for <b>${esc(fac.name)}</b>. Monitor student selections in real-time.</p>
+          <p class="muted">Guide allocation portal for <b>${esc(fac.name)}</b>. Monitor student selections in real-time.</p>
         </div>
         ${accountBar()}
       </div>
 
-      <div class="card">
-        <div class="q-title" style="margin-bottom: 14px;">Your Allocation Status</div>
-        <div class="fac-stat-grid">
-          <div class="fac-stat-card">
-            <div class="val">${esc(fac.capacity)}</div>
-            <div class="lbl">Total Seat Capacity</div>
-          </div>
-          <div class="fac-stat-card">
-            <div class="val">${esc(fac.selected_count)}</div>
-            <div class="lbl">Students Allocated</div>
-          </div>
-          <div class="fac-stat-card">
-            <div class="val" style="color: ${fac.remaining > 0 ? 'var(--ok)' : 'var(--error)'};">${esc(fac.remaining)}</div>
-            <div class="lbl">Remaining Seats</div>
-          </div>
-        </div>
-        <div class="meter-bar" style="height: 10px; margin-bottom: 4px;">
-          <div class="meter-fill ${fac.remaining <= 0 ? 'full' : ''}" style="width: ${pct}%;"></div>
-        </div>
-        <div class="hint" style="text-align: right; font-size: 12px; margin-top: 6px;">${pct}% capacity filled</div>
+      <div class="portal-tabs">
+        <button class="portal-tab ${activeTab === 'my_students' ? 'active' : ''}" id="tabFacMyStudents" type="button">
+          👤 My Allocated Students (${students.length})
+        </button>
+        <button class="portal-tab ${activeTab === 'dept_overview' ? 'active' : ''}" id="tabFacDeptOverview" type="button">
+          ${ico('list_alt')} Department Master Overview
+        </button>
+        ${isAdmin ? `
+          <button class="portal-tab ${activeTab === 'manage_seats' ? 'active' : ''}" id="tabFacManageSeats" type="button">
+            ⚙️ Manage Faculty Seats
+          </button>` : ''}
       </div>
 
-      <div class="card">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-          <div class="q-title" style="margin-bottom: 0;">Students Who Selected You (${students.length})</div>
-          <button class="btn-text" id="refreshDashBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
-            ${ico('refresh')} Refresh
-          </button>
-        </div>
+      <div id="facTabContent">
+        ${activeTab === 'my_students' ? `
+          <div class="card">
+            <div class="q-title" style="margin-bottom: 14px;">Your Allocation Status</div>
+            <div class="fac-stat-grid">
+              <div class="fac-stat-card">
+                <div class="val">${esc(fac.capacity)}</div>
+                <div class="lbl">Total Seat Capacity</div>
+              </div>
+              <div class="fac-stat-card">
+                <div class="val">${esc(fac.selected_count)}</div>
+                <div class="lbl">Students Allocated</div>
+              </div>
+              <div class="fac-stat-card">
+                <div class="val" style="color: ${fac.remaining > 0 ? 'var(--ok)' : 'var(--error)'};">${esc(fac.remaining)}</div>
+                <div class="lbl">Remaining Seats</div>
+              </div>
+            </div>
+            <div class="meter-bar" style="height: 10px; margin-bottom: 4px;">
+              <div class="meter-fill ${fac.remaining <= 0 ? 'full' : ''}" style="width: ${pct}%;"></div>
+            </div>
+            <div class="hint" style="text-align: right; font-size: 12px; margin-top: 6px;">${pct}% capacity filled</div>
+          </div>
 
-        ${students.length ? `
-        <div class="table-responsive">
-          <table class="fac-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Register No</th>
-                <th>Student Name</th>
-                <th>Student Email</th>
-                <th>Selection Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${students.map((s, idx) => `
-                <tr>
-                  <td><b>${idx + 1}</b></td>
-                  <td><span class="reg-chip">${esc(s.register_no)}</span></td>
-                  <td><b>${esc(s.name)}</b></td>
-                  <td><span style="color: var(--text-secondary);">${esc(s.email)}</span></td>
-                  <td style="color: var(--text-secondary); font-size: 12px;">${esc(s.time)} IST</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>` : `
-        <div class="empty-table">
-          ${ico('account_circle')}
-          <div style="font-size: 15px; font-weight: 500; margin-bottom: 4px;">No students have selected you yet</div>
-          <div style="font-size: 13px;">When students submit their choices on the live form, they will appear here in real-time.</div>
-        </div>`}
+          <div class="card">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+              <div class="q-title" style="margin-bottom: 0;">Students Who Selected You (${students.length})</div>
+              <button class="btn-text" id="refreshDashBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
+                ${ico('refresh')} Refresh
+              </button>
+            </div>
+
+            ${students.length ? `
+            <div class="table-responsive">
+              <table class="fac-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Register No</th>
+                    <th>Student Name</th>
+                    <th>Student Email</th>
+                    <th>Selection Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${students.map((s, idx) => `
+                    <tr>
+                      <td><b>${idx + 1}</b></td>
+                      <td><span class="reg-chip">${esc(s.register_no)}</span></td>
+                      <td><b>${esc(s.name)}</b></td>
+                      <td><span style="color: var(--text-secondary);">${esc(s.email)}</span></td>
+                      <td style="color: var(--text-secondary); font-size: 12px;">${esc(s.time)} IST</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>` : `
+            <div class="empty-table">
+              ${ico('account_circle')}
+              <div style="font-size: 15px; font-weight: 500; margin-bottom: 4px;">No students have selected you yet</div>
+              <div style="font-size: 13px;">When students submit their choices on the live form, they will appear here in real-time.</div>
+            </div>`}
+          </div>
+        ` : activeTab === 'dept_overview' ? `
+          <div class="card">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div class="q-title" style="margin-bottom: 0;">Department Master Overview (All Faculty)</div>
+              <button class="btn-text" id="refreshMasterBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
+                ${ico('refresh')} Refresh Live
+              </button>
+            </div>
+            ${renderMasterOverviewTable(overview)}
+          </div>
+        ` : renderSeatAllocationCard(overview)}
       </div>
 
       <div class="card" style="text-align: center; padding: 22px;">
@@ -358,31 +731,66 @@
     const cta = $('#openPreviewCta');
     if (cta) cta.addEventListener('click', () => showFacultyPreview('select_students'));
 
-    const refBtn = $('#refreshDashBtn');
-    if (refBtn) {
-      refBtn.addEventListener('click', async () => {
-        refBtn.textContent = 'Refreshing…';
-        const r = await api('GET', '/api/faculty/dashboard');
-        if (r.ok) {
-          me.faculty_dashboard = r.data;
-          showFacultyDashboard();
+    $('#tabFacMyStudents').addEventListener('click', () => showFacultyDashboard('my_students'));
+    $('#tabFacDeptOverview').addEventListener('click', async () => {
+      if (!me.master_overview) {
+        const r = await api('GET', '/api/director/overview');
+        if (r.ok) me.master_overview = r.data.master_overview;
+      }
+      showFacultyDashboard('dept_overview');
+    });
+
+    if (isAdmin && $('#tabFacManageSeats')) {
+      $('#tabFacManageSeats').addEventListener('click', async () => {
+        if (!me.master_overview) {
+          const r = await api('GET', '/api/director/overview');
+          if (r.ok) me.master_overview = r.data.master_overview;
         }
+        showFacultyDashboard('manage_seats');
       });
     }
 
-    // Auto-poll dashboard every 3.5 seconds
-    pollTimer = setInterval(async () => {
-      if (document.hidden) return;
-      const r = await api('GET', '/api/faculty/dashboard');
-      if (r.ok) {
-        const newCount = (r.data.students_selected || []).length;
-        const oldCount = (students || []).length;
-        if (newCount !== oldCount) {
-          me.faculty_dashboard = r.data;
-          showFacultyDashboard();
-        }
+    if (activeTab === 'my_students') {
+      const refBtn = $('#refreshDashBtn');
+      if (refBtn) {
+        refBtn.addEventListener('click', async () => {
+          refBtn.textContent = 'Refreshing…';
+          const r = await api('GET', '/api/faculty/dashboard');
+          if (r.ok) {
+            me.faculty_dashboard = r.data;
+            showFacultyDashboard('my_students');
+          }
+        });
       }
-    }, 3500);
+
+      // Auto-poll dashboard every 3.5 seconds
+      pollTimer = setInterval(async () => {
+        if (document.hidden) return;
+        const r = await api('GET', '/api/faculty/dashboard');
+        if (r.ok) {
+          const newCount = (r.data.students_selected || []).length;
+          const oldCount = (students || []).length;
+          if (newCount !== oldCount) {
+            me.faculty_dashboard = r.data;
+            showFacultyDashboard('my_students');
+          }
+        }
+      }, 3500);
+    } else if (activeTab === 'dept_overview') {
+      const refMasterBtn = $('#refreshMasterBtn');
+      if (refMasterBtn) {
+        refMasterBtn.addEventListener('click', async () => {
+          refMasterBtn.textContent = 'Refreshing…';
+          const r = await api('GET', '/api/director/overview');
+          if (r.ok) {
+            me.master_overview = r.data.master_overview;
+            showFacultyDashboard('dept_overview');
+          }
+        });
+      }
+    } else if (activeTab === 'manage_seats') {
+      setupSeatAllocationHandlers(() => showFacultyDashboard('manage_seats'));
+    }
   }
 
   // ============================================================
@@ -1028,6 +1436,8 @@
     const sticky = $('#stickyBar');
     if (sticky) sticky.classList.remove('show');
     me.selection = sel;
+    const isSuganesan = (me.register_no === '7376257MB144') || ((me.email || '').toLowerCase().includes('suganesan'));
+
     root.innerHTML = `
       <div class="title-card">
         <div class="accent"></div>
@@ -1044,9 +1454,35 @@
         <div class="detail-row"><div class="k">Register number</div><div class="v">${esc(sel.register_no)}</div></div>
         <div class="detail-row"><div class="k">Submitted at</div><div class="v">${esc(sel.time)} IST</div></div>
         <div class="detail-row"><div class="k">Response no.</div><div class="v">#${esc(sel.seq)}</div></div>
+
+        ${isSuganesan ? `
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border); text-align: center;">
+          <button class="btn-text" id="resetMyTestDataBtn" type="button" style="color: #d93025; font-weight: 500; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
+            ${ico('delete')} Reset My Selection (7376257MB144) to Test Again
+          </button>
+          <div class="hint" style="font-size: 12px; margin-top: 4px;">Clicking this resets your test submission so you can test the form flow again.</div>
+        </div>` : ''}
       </div>
       <div class="form-note">Selections can't be changed. Contact your coordinator if something is wrong.</div>`;
     bindSwitch();
+
+    const resetSelfBtn = $('#resetMyTestDataBtn');
+    if (resetSelfBtn) {
+      resetSelfBtn.addEventListener('click', async () => {
+        resetSelfBtn.disabled = true;
+        resetSelfBtn.textContent = 'Resetting…';
+        const r = await api('POST', '/api/admin/reset-user', { register_no: '7376257MB144', email: me.email });
+        if (!r.ok) {
+          resetSelfBtn.disabled = false;
+          resetSelfBtn.textContent = 'Reset Failed. Try again';
+          return toast(r.data.message || 'Failed to reset.');
+        }
+        toast('Your test selection was cleared! Returning to selection form…');
+        me.selection = null;
+        window.INITIAL_STATE = null;
+        setTimeout(() => boot(), 400);
+      });
+    }
   }
 
   // Keyboard navigation (1-9 and 0 for #10)
@@ -1069,7 +1505,11 @@
       clearInterval(pollTimer);
       pollTimer = null;
     } else {
-      if (me && me.role === 'faculty') {
+      if (me && me.role === 'director') {
+        api('GET', '/api/director/overview').then(r => {
+          if (r.ok) { me.master_overview = r.data.master_overview; }
+        });
+      } else if (me && me.role === 'faculty') {
         api('GET', '/api/faculty/dashboard').then(r => {
           if (r.ok) { me.faculty_dashboard = r.data; showFacultyDashboard(); }
         });
