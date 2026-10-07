@@ -1023,7 +1023,7 @@
           <table class="alloc-table" style="margin-bottom: 0;">
             <thead>
               <tr>
-                <th style="width: 50px; text-align: center;">ID</th>
+                <th style="width: 50px; text-align: center;">#</th>
                 <th>Faculty Name</th>
                 <th>Institutional Email</th>
                 <th>Domain / Specialization</th>
@@ -1033,9 +1033,9 @@
               </tr>
             </thead>
             <tbody>
-              ${list.map(f => `
+              ${list.map((f, idx) => `
                 <tr>
-                  <td style="text-align: center; font-weight: 600; color: var(--text-hint);">#${f.id}</td>
+                  <td style="text-align: center; font-weight: 600; color: var(--text-hint);">${idx + 1}</td>
                   <td><b>${esc(f.name)}</b></td>
                   <td><span style="font-size: 12.5px; color: var(--text-secondary);">${esc(f.email || '—')}</span></td>
                   <td><span class="domain-chip">${esc(f.specialization || 'General')}</span></td>
@@ -1249,7 +1249,7 @@
       title: `🗑️ Delete Faculty`,
       bodyHtml: `
         <p style="margin: 0; color: var(--text-primary); line-height: 1.5;">
-          Are you sure you want to remove <b>${esc(name)} (ID #${fid})</b> from the faculty list?
+          Are you sure you want to remove <b>${esc(name)}</b> from the faculty list?
         </p>
         ${count > 0 ? `
           <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
