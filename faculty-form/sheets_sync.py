@@ -177,14 +177,18 @@ def sync_pending(engine, client, limit: int = 100) -> dict:
             .where(selections.c.synced == 0).order_by(selections.c.seq_id).limit(limit)
         ).mappings().all()
 
+    synced_count = 0
+    sync_err = None
     if rows:
         try:
             client.write_rows([(r["seq_id"] + 1, row_values(r)) for r in rows])
             with engine.begin() as conn:
                 conn.execute(update(selections).where(selections.c.seq_id.in_([r["seq_id"] for r in rows]))
                              .values(synced=1, sync_error=None))
+            synced_count = len(rows)
         except Exception as exc:
             msg = str(exc)[:500]
+            sync_err = msg
             with engine.begin() as conn:
                 conn.execute(update(selections).where(selections.c.seq_id.in_([r["seq_id"] for r in rows]))
                              .values(sync_error=msg))
@@ -233,7 +237,7 @@ def sync_pending(engine, client, limit: int = 100) -> dict:
     except Exception:
         log.exception("Error syncing test submissions to sheets")
 
-    return {"synced": len(rows), "pending": 0, "error": None}
+    return {"synced": synced_count, "pending": (len(rows) - synced_count), "error": sync_err}
 
 
 def rewrite_all_selections(engine, client) -> dict:

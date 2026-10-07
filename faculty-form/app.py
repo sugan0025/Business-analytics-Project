@@ -531,6 +531,9 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/admin/reset-user")
     def admin_reset_user():
         ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin or director access required.", 403)
+
         data = body_json()
         target_reg = str(data.get("register_no") or "").strip().upper()
         target_email = str(data.get("email") or "").strip().lower()
@@ -538,14 +541,6 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if not target_reg and not target_email:
             target_reg = "7376257MB144"
             target_email = "suganesans.mb25@bitsathy.ac.in"
-
-        is_self = (
-            (ident.get("register_no") and ident.get("register_no").upper() == target_reg) or
-            (ident.get("email") and ident.get("email").lower() == target_email) or
-            (target_reg == "7376257MB144" and "suganesan" in (ident.get("email") or "").lower())
-        )
-        if not ident.get("is_admin") and not is_self:
-            return err("forbidden", "Permission denied.", 403)
 
         engine_ = get_engine()
         from db import attempts, faculty, selections, test_selections
@@ -562,6 +557,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
                     conn.execute(
                         update(faculty)
                         .where(faculty.c.id == s["faculty_id"])
+                        .where(faculty.c.selected_count > 0)
                         .values(selected_count=faculty.c.selected_count - 1)
                     )
                     conn.execute(delete(selections).where(selections.c.seq_id == s["seq_id"]))
@@ -594,8 +590,8 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/admin/reconcile-sheets")
     def admin_reconcile_sheets():
         ident = current_identity()
-        if not ident.get("is_admin") and ident.get("role") not in ("director", "faculty"):
-            return err("forbidden", "Access denied.", 403)
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin or director access required.", 403)
         eng = get_engine()
         sheets = get_sheets()
         res = sheets_sync.reconcile_sheet_and_db(eng, sheets)

@@ -132,6 +132,11 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
     window_ms = timer_ms + grace_ms
 
     with engine.begin() as conn:
+        # 0. Check for existing selection before touching faculty counts
+        existing = get_selection(conn, email=email, register_no=register_no)
+        if existing:
+            return _existing_result(existing, email, faculty_id)
+
         # 1. Timer / attempt verification (1 query)
         attempt_id = None
         if timer_ms > 0 and timer_ms < 86400000:
@@ -168,10 +173,16 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
 
         # 3. Record selection (rely on UNIQUE constraints on email & register_no)
         try:
-            res = conn.execute(insert(selections).values(
-                register_no=register_no, email=email, student_name=student_name,
-                faculty_id=faculty_id, created_ms=now_ms, synced=0))
+            with conn.begin_nested():
+                res = conn.execute(insert(selections).values(
+                    register_no=register_no, email=email, student_name=student_name,
+                    faculty_id=faculty_id, created_ms=now_ms, synced=0))
         except IntegrityError:
+            conn.execute(
+                update(faculty)
+                .where(faculty.c.id == faculty_id, faculty.c.selected_count > 0)
+                .values(selected_count=faculty.c.selected_count - 1)
+            )
             existing = get_selection(conn, email=email, register_no=register_no)
             if existing:
                 return _existing_result(existing, email, faculty_id)
