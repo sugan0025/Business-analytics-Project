@@ -91,7 +91,7 @@ def load_settings() -> Settings:
         service_account_file=os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip(),
         email_domain=os.environ.get("ALLOWED_EMAIL_DOMAIN", "bitsathy.ac.in").strip().lower(),
         email_local_suffix=os.environ.get("EMAIL_LOCAL_SUFFIX", ".mb25").strip().lower(),
-        timer_seconds=_int("TIMER_SECONDS", 86400),
+        timer_seconds=_int("TIMER_SECONDS", 60),
         max_attempts=_int("MAX_ATTEMPTS", 5),
         grace_seconds=_int("GRACE_SECONDS", 2),
         open_at=os.environ.get("OPEN_AT", "").strip(),

@@ -77,7 +77,7 @@ def selection_view(row):
 
 def availability(engine):
     with engine.connect() as conn:
-        rows = conn.execute(select(faculty).order_by(faculty.c.id)).mappings().all()
+        rows = conn.execute(select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)).mappings().all()
     return [
         {"id": r["id"], "name": r["name"], "capacity": r["capacity"],
          "remaining": max(r["capacity"] - r["selected_count"], 0)}

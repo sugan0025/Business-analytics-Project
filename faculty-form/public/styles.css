@@ -196,16 +196,28 @@ select.text-input:focus { border-color: var(--primary); }
 .banner.info { background: #e8f0fe; color: #174ea6; border-color: #c6dafc; }
 .banner .banner-action { margin-left: auto; }
 
+.hidden { display: none !important; }
+
 /* ---- timer ---- */
 .timer-pill {
   position: fixed; top: 12px; right: 12px; z-index: 50; display: flex; align-items: center; gap: 6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
   padding: 7px 14px 7px 10px; font-family: var(--font-display); font-weight: 500; font-size: 15px;
   box-shadow: var(--shadow-md); font-variant-numeric: tabular-nums;
+  transition: all 0.2s ease;
 }
 .timer-pill .ico { color: var(--primary); }
-.timer-pill.warn { color: var(--error); border-color: var(--error); }
+.timer-pill.warn { color: var(--error); border-color: var(--error); background: #fdf2f2; }
 .timer-pill.warn .ico { color: var(--error); }
+
+.g-btn-skeleton {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 9px 16px; border: 1px solid #dadce0; border-radius: 4px;
+  background: #ffffff; color: #3c4043; font-size: 14px; font-weight: 500;
+  cursor: pointer; box-shadow: 0 1px 2px rgba(60,64,67,0.08); transition: background-color 0.2s;
+}
+.g-btn-skeleton:hover { background: #f8f9fa; border-color: #d2e3fc; }
+
 
 /* ---- sign-in / done ---- */
 .signin-box { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }

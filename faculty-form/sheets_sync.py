@@ -87,6 +87,44 @@ class GoogleSheetsClient:
         ranges = [f"'{self.responses_tab}'!A{n}:F{n}" for n in row_numbers]
         self._call("POST", "/values:batchClear", json={"ranges": ranges})
 
+    def read_responses(self) -> list:
+        try:
+            res = self._call("GET", f"/values/'{self.responses_tab}'!A:F")
+            return res.get("values", [])
+        except Exception:
+            log.exception("Error reading responses from Google Sheet")
+            return []
+
+    def delete_student_by_query(self, reg_no: str, email: str) -> list:
+        rows = self.read_responses()
+        cleared_indices = []
+        reg_upper = (reg_no or "").strip().upper()
+        email_lower = (email or "").strip().lower()
+
+        for idx, row in enumerate(rows, start=1):
+            if idx == 1:
+                continue  # header
+            row_reg = (row[3] if len(row) > 3 else "").strip().upper()
+            row_email = (row[4] if len(row) > 4 else "").strip().lower()
+            if (reg_upper and row_reg == reg_upper) or (email_lower and row_email == email_lower):
+                cleared_indices.append(idx)
+
+        if cleared_indices:
+            self.clear_rows(cleared_indices)
+            log.info(f"Cleared rows from Google Sheet: {cleared_indices}")
+        return cleared_indices
+
+    def count_selections_by_faculty(self) -> dict:
+        rows = self.read_responses()
+        counts = {}
+        for idx, row in enumerate(rows, start=1):
+            if idx == 1:
+                continue
+            if len(row) > 5 and row[5].strip():
+                fac_name = row[5].strip()
+                counts[fac_name] = counts.get(fac_name, 0) + 1
+        return counts
+
     # -- one-time layout (manage.py init-sheet)
     def init_layout(self, faculty_rows: List[dict]):
         meta = self._call("GET", "?fields=sheets.properties.title")
@@ -188,3 +226,45 @@ def sync_pending(engine, client, limit: int = 100) -> dict:
         log.exception("Error syncing test submissions to sheets")
 
     return {"synced": len(rows), "pending": 0, "error": None}
+
+
+def reconcile_sheet_and_db(engine, client) -> dict:
+    """Two-way synchronization between Google Sheet and database:
+    1. Clear Suganesan S (7376257MB144 / suganesans.mb25@bitsathy.ac.in) from Google Sheet Responses tab.
+    2. Count remaining student choices in Responses tab per faculty.
+    3. Update database table `faculty`:
+       - Correct capacities: 5 for IDs (2, 3, 4), and 4 for IDs (5, 6, 7, 8, 9, 10).
+       - Set selected_count to match Google Sheet selection counts dynamically.
+    4. Remove any database records for Suganesan (selections and attempts).
+    """
+    if client is None:
+        return {"ok": False, "error": "sheets_client_none"}
+
+    try:
+        cleared = client.delete_student_by_query("7376257MB144", "suganesans.mb25@bitsathy.ac.in")
+        counts = client.count_selections_by_faculty()
+
+        with engine.begin() as conn:
+            # Enforce correct capacities
+            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4])).values(capacity=5))
+            conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
+
+            # Reconcile selected_count if Google Sheet has responses
+            if counts:
+                fac_rows = conn.execute(select(faculty)).mappings().all()
+                for f in fac_rows:
+                    cnt = counts.get(f["name"], 0)
+                    conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=cnt))
+
+            # Ensure Suganesan's student test record is deleted from DB
+            from db import attempts, selections
+            conn.execute(selections.delete().where(
+                (selections.c.register_no == "7376257MB144") |
+                (selections.c.email == "suganesans.mb25@bitsathy.ac.in")
+            ))
+            conn.execute(attempts.delete().where(attempts.c.email == "suganesans.mb25@bitsathy.ac.in"))
+
+        return {"ok": True, "cleared_rows": cleared, "counts": counts}
+    except Exception as exc:
+        log.exception("Error in reconcile_sheet_and_db")
+        return {"ok": False, "error": str(exc)}

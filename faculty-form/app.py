@@ -320,6 +320,14 @@ def create_app(settings=None, engine=None, sheets_client=None):
             eng = get_engine()
             with eng.connect() as conn:
                 conn.execute(text("SELECT 1"))
+            sheets = get_sheets()
+            if sheets:
+                try:
+                    reconcile_res = sheets_sync.reconcile_sheet_and_db(eng, sheets)
+                    info["reconcile"] = reconcile_res
+                    invalidate_availability_cache()
+                except Exception as ex:
+                    info["reconcile_error"] = str(ex)
             data, etag = get_cached_availability(eng, max_age=0.0)
             info["faculty_count"] = len(data)
             info["database_ok"] = True
@@ -517,12 +525,33 @@ def create_app(settings=None, engine=None, sheets_client=None):
             if data.get("clear_test_selections"):
                 conn.execute(delete(test_selections))
 
+        sheets = get_sheets()
+        sheet_cleared = []
+        if sheets:
+            try:
+                sheet_cleared = sheets.delete_student_by_query(target_reg, target_email)
+            except Exception:
+                pass
+
         invalidate_availability_cache()
         return jsonify({
             "ok": True,
             "message": f"Cleared records for {target_reg or target_email} ({cleared_count} selections removed).",
             "cleared_count": cleared_count,
+            "sheet_cleared_rows": sheet_cleared,
         })
+
+    @app.post("/api/admin/reconcile-sheets")
+    def admin_reconcile_sheets():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") not in ("director", "faculty"):
+            return err("forbidden", "Access denied.", 403)
+        eng = get_engine()
+        sheets = get_sheets()
+        res = sheets_sync.reconcile_sheet_and_db(eng, sheets)
+        invalidate_availability_cache()
+        avail, _ = get_cached_availability(eng, max_age=0.0)
+        return jsonify({"ok": True, "reconcile": res, "faculty": avail})
 
     @app.get("/api/faculty/dashboard")
     def faculty_dashboard():

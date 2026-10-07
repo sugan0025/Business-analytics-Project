@@ -175,13 +175,19 @@
   }
 
   // ---------- sign in ----------
+  const G_SKELETON = `
+    <div class="g-btn-skeleton" id="gbtnSkeleton" style="display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:9px 16px;border:1px solid #dadce0;border-radius:4px;background:#fff;color:#3c4043;font-size:14px;font-weight:500;cursor:pointer;box-shadow:0 1px 2px rgba(60,64,67,0.08);">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.49h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.33C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.97 10.71c-.18-.54-.28-1.12-.28-1.71s.1-1.17.28-1.71V4.96H.96A8.996 8.996 0 0 0 0 9c0 1.45.35 2.82.96 4.04l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l3.01 2.33c.71-2.13 2.69-3.71 5.03-3.71z"/></svg>
+      <span>Sign in with Google</span>
+    </div>`;
+
   function showSignin(error) {
     stopTimers();
     root.innerHTML = titleCard() + `
       <div class="card">
         <div class="q-title">Sign in to continue</div>
         <div class="signin-box">
-          <div id="gbtn"></div>
+          <div id="gbtn">${G_SKELETON}</div>
           <div class="hint">Use your college Google account (<b>@${esc(APP.domain)}</b>).
             Students will be routed to selection; faculties will access their student allocation dashboard.</div>
           <div class="banner ${error ? '' : 'hidden'}" id="signinError">${ico('error')}<div id="signinErrorText">${esc(error || '')}</div></div>
@@ -206,18 +212,36 @@
       signinError('Google Sign-In is not set up yet (GOOGLE_CLIENT_ID is missing on the server).');
       return;
     }
+
+    function initGsi() {
+      if (window.google && google.accounts && google.accounts.id) {
+        try {
+          google.accounts.id.initialize({ client_id: APP.clientId, callback: onCredential, auto_select: false });
+          const gb = $('#gbtn');
+          if (gb) {
+            const w = Math.min(300, Math.max(220, root.clientWidth - 80));
+            google.accounts.id.renderButton(gb, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: w });
+          }
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+      return false;
+    }
+
+    window.onGsiLoaded = initGsi;
+    if (initGsi()) return;
+
     let tries = 0;
     const wait = setInterval(() => {
-      if (window.google && google.accounts && google.accounts.id) {
+      if (initGsi()) {
         clearInterval(wait);
-        google.accounts.id.initialize({ client_id: APP.clientId, callback: onCredential, auto_select: false });
-        const w = Math.min(300, Math.max(220, root.clientWidth - 80));
-        google.accounts.id.renderButton($('#gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', width: w });
-      } else if (++tries > 100) {
+      } else if (++tries > 80) {
         clearInterval(wait);
         signinError('Could not load Google Sign-In. Check your connection and refresh.');
       }
-    }, 80);
+    }, 60);
   }
 
   function signinError(msg) {
@@ -1149,7 +1173,43 @@
       expiresMs = att.expires_ms || 0;
       offset = (att.server_now || Date.now()) - Date.now();
     }
-    if (timerEl) timerEl.classList.add('hidden');
+    if (timerEl && expiresMs > 0) {
+      timerEl.classList.remove('hidden');
+      timerEl.classList.remove('warn');
+      clearInterval(tickTimer);
+      tickAttempt();
+      tickTimer = setInterval(tickAttempt, 500);
+    }
+  }
+
+  function tickAttempt() {
+    if (!expiresMs) return;
+    const remaining = Math.max(0, Math.round((expiresMs - serverNow()) / 1000));
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    if (timerText) timerText.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
+    if (timerEl) {
+      timerEl.classList.toggle('warn', remaining <= 15);
+    }
+    if (remaining <= 0) {
+      clearInterval(tickTimer);
+      tickTimer = null;
+      onTimerExpired();
+    }
+  }
+
+  function onTimerExpired() {
+    setLocked(true);
+    const sbtn = $('#submitBtn');
+    if (sbtn) {
+      sbtn.disabled = true;
+      sbtn.textContent = 'Timer Expired';
+    }
+    const banner = $('#formBanner');
+    if (banner) {
+      banner.innerHTML = `<div class="banner">${ico('hourglass_bottom')}<div><b>Timer expired.</b> The 60-second limit has reached. You cannot submit responses anymore.</div></div>`;
+    }
+    toast('Timer expired. Form is locked.');
   }
 
   function setLocked(locked) {
@@ -1282,9 +1342,7 @@
     if (r.status === 401) return showSignin('Your session ended. Please sign in again.');
     if (d.code === 'not_open' || d.code === 'closed') { me.is_open = false; me.reason = d.code; return showClosed(); }
     if (d.code === 'timer_expired') {
-      setLocked(false);
-      api('POST', '/api/start').then(res => { if (res.ok) beginAttempt(res.data); });
-      toast('Session refreshed. Please click Submit again.');
+      onTimerExpired();
       return;
     }
     if (d.code === 'faculty_full') {

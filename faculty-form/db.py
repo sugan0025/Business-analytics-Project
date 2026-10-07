@@ -161,6 +161,14 @@ def init_schema(engine):
     except Exception:
         pass
 
+    # Enforce capacities matching Google Sheet
+    try:
+        with engine.begin() as conn:
+            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4])).values(capacity=5))
+            conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
+    except Exception:
+        pass
+
 
 # ---- seeding from the CSV config files ------------------------------------
 
@@ -202,8 +210,6 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
     if len(regs) != len(set(regs)):
         raise ValueError("roster.csv has duplicate register numbers")
     total_capacity = sum(int(r["capacity"]) for r in fac_rows)
-    if total_capacity < len(stu_rows):
-        raise ValueError(f"Total faculty capacity ({total_capacity}) is less than students ({len(stu_rows)})")
 
     with engine.begin() as conn:
         current_fids = [int(r["id"]) for r in fac_rows]
