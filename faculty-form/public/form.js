@@ -953,11 +953,7 @@
 
       <div class="card" id="facCard">
         <div class="q-title">Select your faculty <span class="req">*</span></div>
-        <div class="search-box">
-          ${ico('search')}
-          <input class="search-input" id="testFacSearch" placeholder="Search faculty name…" autocomplete="off" />
-        </div>
-        <div class="options" id="options" role="radiogroup" aria-label="Faculty"></div>
+        <div class="options" id="options"></div>
         <div class="q-error">${ico('error_outline')}<span id="facErrorText">This is a required question</span></div>
       </div>
 
@@ -973,56 +969,27 @@
 
     bindSwitch();
 
-    // Render all faculty options for testing (none disabled!)
+    // Render all faculty options for testing
     const box = $('#options');
-    box.innerHTML = faculty.map((f, idx) => `
-      <div class="option ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}" role="radio" aria-checked="${selectedId === f.id}">
+    box.innerHTML = faculty.map(f => `
+      <label class="option" data-id="${f.id}">
         <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
-        <div class="option-main">
-          <span class="key-badge">${idx === 9 ? '0' : idx + 1}</span>
-          <span class="radio"></span>
-          <span class="name">${esc(f.name)} ${f.name === me.name ? '(You)' : ''}</span>
-          <span class="seats-badge">${f.remaining} seats left</span>
-        </div>
-        <div class="meter-row">
-          <div class="meter-bar"><div class="meter-fill" style="width: ${Math.round(((f.capacity - f.remaining) / f.capacity) * 100)}%;"></div></div>
-          <span class="meter-text">${f.capacity - f.remaining}/${f.capacity} taken</span>
-        </div>
-      </div>
+        <span class="radio"></span>
+        <span class="name">${esc(f.name)} ${f.name === me.name ? '(You)' : ''}</span>
+        <span class="seats">${f.remaining} seats left</span>
+      </label>
     `).join('');
 
-    box.addEventListener('click', (e) => {
-      const opt = e.target.closest('.option');
-      if (!opt) return;
-      const fid = Number(opt.dataset.id);
-      selectedId = fid;
-      root.querySelectorAll('#options .option').forEach(el => {
-        const isSel = Number(el.dataset.id) === fid;
-        el.classList.toggle('selected', isSel);
-        const inp = el.querySelector('input');
-        if (inp) inp.checked = isSel;
-      });
-      markError('facCard', false);
+    box.addEventListener('change', (e) => {
+      if (e.target.name === 'faculty') {
+        selectedId = Number(e.target.value);
+        markError('facCard', false);
+      }
     });
-
-    const sInp = $('#testFacSearch');
-    if (sInp) {
-      sInp.addEventListener('input', () => {
-        const q = sInp.value.trim().toLowerCase();
-        root.querySelectorAll('#options .option').forEach(el => {
-          const name = (el.querySelector('.name') || {}).textContent || '';
-          el.style.display = (!q || name.toLowerCase().includes(q)) ? '' : 'none';
-        });
-      });
-    }
 
     $('#testClearBtn').addEventListener('click', () => {
       selectedId = null;
-      root.querySelectorAll('#options .option').forEach(el => {
-        el.classList.remove('selected');
-        const inp = el.querySelector('input');
-        if (inp) inp.checked = false;
-      });
+      root.querySelectorAll('#options input').forEach(inp => { inp.checked = false; });
     });
 
     $('#testSubmitBtn').addEventListener('click', async () => {
@@ -1134,29 +1101,17 @@
         ${regCard}
         <div class="q-error">${ico('error_outline')}This is a required question</div></div>
       <div class="card" id="facCard"><div class="q-title">Select your faculty <span class="req">*</span></div>
-        <div class="search-box">
-          ${ico('search')}
-          <input class="search-input" id="facSearch" placeholder="Quick search faculty name…" autocomplete="off" />
-        </div>
-        <div class="options" id="options" role="radiogroup" aria-label="Faculty"></div>
+        <div class="options" id="options"></div>
         <div class="q-error">${ico('error_outline')}<span id="facErrorText">This is a required question</span></div></div>
       <div class="submit-area">
         <button class="btn-primary" id="submitBtn" type="button">Submit</button>
         <button class="btn-text" id="clearBtn" type="button">Clear form</button>
       </div>
-      <div class="form-note">Seats update live. Once a faculty is full it can't be selected. You can't change your choice after submitting.</div>
-      <div class="sticky-bar" id="stickyBar">
-        <div class="sticky-info">
-          <div class="sticky-label">Selected Choice</div>
-          <div class="sticky-name" id="stickyName">None</div>
-        </div>
-        <button class="sticky-btn" id="stickySubmitBtn" type="button">Submit Selection</button>
-      </div>`;
+      <div class="form-note">Seats update live. Once a faculty is full it can't be selected. You can't change your choice after submitting.</div>`;
 
     bindSwitch();
+    renderOptions();
     $('#submitBtn').addEventListener('click', submit);
-    const stickyBtn = $('#stickySubmitBtn');
-    if (stickyBtn) stickyBtn.addEventListener('click', submit);
     $('#clearBtn').addEventListener('click', clearForm);
 
     const regSel = $('#regSelect');
@@ -1165,29 +1120,6 @@
       $('#nameField').value = hit ? hit.name : '';
       markError('regCard', false);
     });
-
-    const searchInput = $('#facSearch');
-    if (searchInput) {
-      const applyFilter = () => {
-        const q = searchInput.value.trim().toLowerCase();
-        root.querySelectorAll('#options .option').forEach(el => {
-          const name = (el.querySelector('.name') || {}).textContent || '';
-          el.style.display = (!q || name.toLowerCase().includes(q)) ? '' : 'none';
-        });
-      };
-      searchInput.addEventListener('input', applyFilter);
-      searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          searchInput.value = '';
-          applyFilter();
-          searchInput.blur();
-        }
-      });
-    }
-
-    if (faculty && faculty.length) {
-      renderOptions();
-    }
 
     if (preloadedAttempt) {
       beginAttempt(preloadedAttempt);
@@ -1233,7 +1165,7 @@
   }
 
   function setLocked(locked) {
-    root.querySelectorAll('#options input, #regSelect, #submitBtn, #clearBtn, #stickySubmitBtn, #facSearch').forEach(el => { el.disabled = locked; });
+    root.querySelectorAll('#options input, #regSelect, #submitBtn, #clearBtn').forEach(el => { el.disabled = locked; });
     if (!locked) updateOptions();
   }
 
@@ -1241,8 +1173,6 @@
     expired = true;
     clearInterval(tickTimer);
     setLocked(true);
-    const sticky = $('#stickyBar');
-    if (sticky) sticky.classList.remove('show');
     const b = $('#formBanner');
     if (!b) return;
     b.innerHTML = `<div class="banner">${ico('hourglass_bottom')}
@@ -1263,25 +1193,18 @@
   function renderOptions() {
     const box = $('#options');
     if (!box) return;
-    box.innerHTML = faculty.map((f, idx) => `
-      <div class="option ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}" role="radio" aria-checked="${selectedId === f.id}">
-        <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
-        <div class="option-main">
-          <span class="key-badge" title="Shortcut key: ${idx === 9 ? '0' : idx + 1}">${idx === 9 ? '0' : idx + 1}</span>
-          <span class="radio"></span>
-          <span class="name">${esc(f.name)}</span>
-          <span class="seats-badge"></span>
-        </div>
-        <div class="meter-row">
-          <div class="meter-bar"><div class="meter-fill"></div></div>
-          <span class="meter-text"></span>
-        </div>
-      </div>`).join('');
-
-    box.addEventListener('click', (e) => {
-      const opt = e.target.closest('.option');
-      if (!opt || opt.classList.contains('disabled') || expired || submitting) return;
-      selectFaculty(Number(opt.dataset.id));
+    box.innerHTML = faculty.map(f => `
+      <label class="option" data-id="${f.id}">
+        <input type="radio" name="faculty" value="${f.id}" />
+        <span class="radio"></span>
+        <span class="name">${esc(f.name)}</span>
+        <span class="seats"></span>
+      </label>`).join('');
+    box.addEventListener('change', (e) => {
+      if (e.target.name === 'faculty') {
+        selectedId = Number(e.target.value);
+        markError('facCard', false);
+      }
     });
     updateOptions();
   }
@@ -1289,17 +1212,9 @@
   function selectFaculty(id) {
     selectedId = id;
     markError('facCard', false);
-    root.querySelectorAll('#options .option').forEach(el => {
-      const isSel = Number(el.dataset.id) === id;
-      el.classList.toggle('selected', isSel);
-      const inp = el.querySelector('input');
-      if (inp) inp.checked = isSel;
-    });
-    const f = faculty.find(item => item.id === id);
-    const sticky = $('#stickyBar');
-    if (sticky && f) {
-      $('#stickyName').textContent = f.name;
-      sticky.classList.add('show');
+    const inp = root.querySelector(`.option[data-id="${id}"] input`);
+    if (inp && !inp.disabled) {
+      inp.checked = true;
     }
   }
 
@@ -1309,40 +1224,22 @@
       const row = root.querySelector(`.option[data-id="${f.id}"]`);
       if (!row) return;
       const full = f.remaining <= 0;
-      const isSel = selectedId === f.id;
       const input = row.querySelector('input');
-      const badge = row.querySelector('.seats-badge');
-      const meterFill = row.querySelector('.meter-fill');
-      const meterText = row.querySelector('.meter-text');
-
+      const seats = row.querySelector('.seats');
       row.classList.toggle('disabled', full);
-      row.classList.toggle('selected', isSel && !full);
       if (input) {
         input.disabled = full || expired || submitting;
-        input.checked = isSel;
+        if (selectedId === f.id) input.checked = !full;
       }
-      if (badge) {
-        badge.textContent = full ? 'Full' : f.remaining + (f.remaining === 1 ? ' seat left' : ' seats left');
-        badge.className = 'seats-badge' + (full ? ' full' : (!full && f.remaining <= 2 ? ' low' : ''));
-      }
-      if (meterFill && meterText) {
-        const filled = f.capacity - f.remaining;
-        const pct = Math.round((Math.max(0, filled) / f.capacity) * 100);
-        meterFill.style.width = pct + '%';
-        meterFill.className = 'meter-fill' + (full ? ' full' : (!full && f.remaining <= 2 ? ' low' : ''));
-        meterText.textContent = `${Math.max(0, filled)}/${f.capacity} taken`;
+      if (seats) {
+        seats.textContent = full ? 'Full' : f.remaining + (f.remaining === 1 ? ' seat left' : ' seats left');
+        seats.classList.toggle('low', !full && f.remaining <= 2);
       }
       if (full && selectedId === f.id) { lostChoice = f; }
     });
     if (lostChoice) {
       selectedId = null;
-      const sticky = $('#stickyBar');
-      if (sticky) sticky.classList.remove('show');
-      root.querySelectorAll('#options .option').forEach(i => {
-        i.classList.remove('selected');
-        const inp = i.querySelector('input');
-        if (inp) inp.checked = false;
-      });
+      root.querySelectorAll('#options input').forEach(i => { i.checked = false; });
       markError('facCard', true, `${lostChoice.name} just filled up. Please choose another.`);
     }
   }
@@ -1367,13 +1264,7 @@
 
   function clearForm() {
     selectedId = null;
-    const sticky = $('#stickyBar');
-    if (sticky) sticky.classList.remove('show');
-    root.querySelectorAll('#options .option').forEach(i => {
-      i.classList.remove('selected');
-      const inp = i.querySelector('input');
-      if (inp) inp.checked = false;
-    });
+    root.querySelectorAll('#options input').forEach(i => { i.checked = false; });
     const reg = $('#regSelect'); if (reg) { reg.value = ''; $('#nameField').value = ''; }
     markError('facCard', false); markError('regCard', false);
   }
@@ -1388,9 +1279,7 @@
 
     submitting = true;
     const btn = $('#submitBtn');
-    const stickyBtn = $('#stickySubmitBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-    if (stickyBtn) { stickyBtn.disabled = true; stickyBtn.textContent = 'Submitting…'; }
     setLocked(true);
 
     const r = await api('POST', '/api/submit', { faculty_id: selectedId, register_no: reg ? reg.value : undefined });
@@ -1399,7 +1288,6 @@
     if (r.ok) return showDone(d.selection, d.already);
 
     if (btn) btn.textContent = 'Submit';
-    if (stickyBtn) { stickyBtn.disabled = false; stickyBtn.textContent = 'Submit Selection'; }
 
     if (d.code === 'already_submitted' && d.selection) return showDone(d.selection, true);
     if (r.status === 401) return showSignin('Your session ended. Please sign in again.');
@@ -1408,13 +1296,7 @@
     if (d.code === 'faculty_full') {
       if (d.faculty) faculty = d.faculty;
       selectedId = null;
-      const sticky = $('#stickyBar');
-      if (sticky) sticky.classList.remove('show');
-      root.querySelectorAll('#options .option').forEach(i => {
-        i.classList.remove('selected');
-        const inp = i.querySelector('input');
-        if (inp) inp.checked = false;
-      });
+      root.querySelectorAll('#options input').forEach(i => { i.checked = false; });
       setLocked(expired);
       if (btn) btn.disabled = expired;
       updateOptions();
@@ -1433,8 +1315,6 @@
 
   function showDone(sel, already) {
     stopTimers();
-    const sticky = $('#stickyBar');
-    if (sticky) sticky.classList.remove('show');
     me.selection = sel;
     const isSuganesan = (me.register_no === '7376257MB144') || ((me.email || '').toLowerCase().includes('suganesan'));
 
