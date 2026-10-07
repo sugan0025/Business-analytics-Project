@@ -718,7 +718,30 @@ def create_app(settings=None, engine=None, sheets_client=None):
             return err(res.code, res.message, STATUS_FOR_CODE.get(res.code, 400), **extra)
 
         invalidate_availability_cache()
-        trigger_sheet_sync(engine_, get_sheets(), background=True)
+
+        # Immediate sync of this selection to Google Sheets so it appears instantly
+        sheets = get_sheets()
+        if sheets and not res.already and res.selection:
+            try:
+                row_val = [
+                    res.selection["seq"],
+                    config.fmt_ist(res.selection["created_ms"]),
+                    res.selection["name"],
+                    res.selection["register_no"],
+                    res.selection["email"],
+                    res.selection["faculty"]
+                ]
+                sheets.write_rows([(res.selection["seq"] + 1, row_val)])
+                from db import selections
+                with engine_.begin() as conn:
+                    conn.execute(
+                        update(selections)
+                        .where(selections.c.seq_id == res.selection["seq"])
+                        .values(synced=1, sync_error=None)
+                    )
+            except Exception as exc:
+                log.exception("Direct sheet sync error on submit")
+
         return jsonify({"ok": True, "already": res.already, "selection": sel_json(res.selection)})
 
     @app.post("/api/sync")

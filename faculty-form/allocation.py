@@ -124,8 +124,7 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
     register_no = identity["register_no"]
     window_ms = timer_ms + grace_ms
 
-    # Cheap pre-checks (reads only) so the common failures never touch the write path.
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         existing = get_selection(conn, email=email, register_no=register_no)
         if existing:
             return _existing_result(existing, email, faculty_id)
@@ -139,63 +138,46 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
             select(attempts).where(attempts.c.email == email, attempts.c.status == "open")
             .order_by(attempts.c.id.desc())
         ).mappings().first()
-    if attempt is None:
-        # A parallel duplicate of this same request may have just committed and used the attempt:
-        # show that confirmation instead of an error.
-        with engine.connect() as conn:
-            existing = get_selection(conn, email=email, register_no=register_no)
-        if existing:
-            return _existing_result(existing, email, faculty_id)
-        # Create an attempt on the fly so valid submissions are never dropped
-        with engine.begin() as conn:
+        if attempt is None:
             ins = conn.execute(insert(attempts).values(email=email, started_ms=now_ms, status="open"))
             att_id = ins.inserted_primary_key[0] if ins.inserted_primary_key else 1
             attempt = {"id": att_id, "started_ms": now_ms, "status": "open"}
-    if timer_ms > 0 and timer_ms < 86400000 and now_ms > attempt["started_ms"] + window_ms:
-        with engine.begin() as conn:
+        elif timer_ms > 0 and timer_ms < 86400000 and now_ms > attempt["started_ms"] + window_ms:
             conn.execute(update(attempts).where(attempts.c.id == attempt["id"]).values(status="expired"))
-        return _fail("timer_expired")
+            return _fail("timer_expired")
 
-    try:
-        with engine.begin() as conn:
-            # 1) take the seat: only succeeds while seats remain
-            taken = conn.execute(
-                update(faculty)
-                .where(faculty.c.id == faculty_id, faculty.c.selected_count < faculty.c.capacity)
-                .values(selected_count=faculty.c.selected_count + 1)
-            )
-            if taken.rowcount != 1:
-                raise _Abort("faculty_full")
-            # 2) record the selection (unique email / register_no)
-            try:
-                res = conn.execute(insert(selections).values(
-                    register_no=register_no, email=email, student_name=student["name"],
-                    faculty_id=faculty_id, created_ms=now_ms, synced=0))
-            except IntegrityError:
-                raise _Abort("duplicate")
-            seq_id = res.inserted_primary_key[0]
-            # 3) burn the attempt, and re-check expiry atomically
-            burned = conn.execute(
-                update(attempts)
-                .where(attempts.c.id == attempt["id"], attempts.c.status == "open",
-                       attempts.c.started_ms >= now_ms - window_ms)
-                .values(status="used")
-            )
-            if burned.rowcount != 1:
-                raise _Abort("timer_expired")
-    except _Abort as a:
-        if a.code == "duplicate":
-            with engine.connect() as conn:
-                existing = get_selection(conn, email=email, register_no=register_no)
+        # 1) take the seat: only succeeds while seats remain
+        taken = conn.execute(
+            update(faculty)
+            .where(faculty.c.id == faculty_id, faculty.c.selected_count < faculty.c.capacity)
+            .values(selected_count=faculty.c.selected_count + 1)
+        )
+        if taken.rowcount != 1:
+            return _fail("faculty_full")
+
+        # 2) record the selection (unique email / register_no)
+        try:
+            res = conn.execute(insert(selections).values(
+                register_no=register_no, email=email, student_name=student["name"],
+                faculty_id=faculty_id, created_ms=now_ms, synced=0))
+        except IntegrityError:
+            existing = get_selection(conn, email=email, register_no=register_no)
             if existing:
                 return _existing_result(existing, email, faculty_id)
             return _fail("already_submitted")
-        return _fail(a.code)
+        seq_id = res.inserted_primary_key[0]
 
-    return Result(True, selection={
-        "seq": seq_id, "faculty_id": faculty_id, "faculty": fac["name"], "created_ms": now_ms,
-        "register_no": register_no, "name": student["name"], "email": email,
-    })
+        # 3) burn the attempt atomically
+        conn.execute(
+            update(attempts)
+            .where(attempts.c.id == attempt["id"], attempts.c.status == "open")
+            .values(status="used")
+        )
+
+        return Result(True, selection={
+            "seq": seq_id, "faculty_id": faculty_id, "faculty": fac["name"], "created_ms": now_ms,
+            "register_no": register_no, "name": student["name"], "email": email,
+        })
 
 
 def _existing_result(existing, email, faculty_id):
