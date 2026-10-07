@@ -278,8 +278,7 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             if existing is None:
                 conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email, specialization=spec))
             else:
-                target_cap = cap if force else existing["capacity"]
-                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email, specialization=spec))
+                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=cap, email=fac_email, specialization=spec))
         for r in stu_rows:
             reg = r["register_no"].upper()
             email = r.get("email", "").lower() or None
@@ -310,12 +309,15 @@ def ensure_ready(engine):
     with _ready_lock:
         if key in _ready_for:
             return
-        # Ultra-fast path: if schema and seed already exist in this DB, return in ~1 roundtrip
+        faculty_path = BASE_DIR / "faculty.csv"
+        roster_path = BASE_DIR / "roster.csv"
+        digest = _files_hash(faculty_path, roster_path)
+        # Ultra-fast path: if schema and seed already exist and match current files hash, return immediately
         try:
             with engine.connect() as conn:
                 fac_cnt = conn.execute(select(func.count()).select_from(faculty)).scalar()
                 hash_row = conn.execute(select(settings_kv.c.value).where(settings_kv.c.key == "seed_hash")).first()
-            if fac_cnt and fac_cnt > 0 and hash_row:
+            if fac_cnt and fac_cnt >= 10 and hash_row and hash_row[0] == digest:
                 _ready_for.add(key)
                 return
         except Exception:
