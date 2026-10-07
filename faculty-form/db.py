@@ -1,16 +1,19 @@
 """Database layer: SQLAlchemy Core. SQLite locally/tests, Postgres on Vercel."""
 import csv
 import hashlib
+import logging
 import threading
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, ForeignKey, Integer, MetaData, String, Table, Text,
-    create_engine, delete, event, insert, select, text, update,
+    create_engine, delete, event, func, insert, select, text, update,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 
 from config import BASE_DIR, on_vercel
+
+log = logging.getLogger("faculty-form")
 
 metadata = MetaData()
 
@@ -114,10 +117,14 @@ def make_engine(url: str):
             cur.close()
 
         return engine
-    # Postgres. Serverless: no connection pooling inside the function (use the host's pooled URL).
-    kwargs = {"pool_pre_ping": True}
-    if on_vercel():
-        kwargs["poolclass"] = NullPool
+    # Postgres. Serverless: small QueuePool so warm containers reuse authenticated TLS sockets.
+    # We omit pool_pre_ping to avoid an extra SELECT 1 network roundtrip per connection.
+    kwargs = {
+        "pool_size": 2,
+        "max_overflow": 5,
+        "pool_recycle": 300,
+        "pool_timeout": 10,
+    }
     return create_engine(url, **kwargs)
 
 
@@ -168,11 +175,11 @@ def init_schema(engine):
     except Exception:
         pass
 
-    # Enforce 44 total capacity: all faculties get 5 each, only Suganesh Sir (id=10) gets 4
+    # Set default 44 capacity only if faculty has no capacity assigned yet
     try:
         with engine.begin() as conn:
-            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4, 5, 6, 7, 8, 9])).values(capacity=5))
-            conn.execute(update(faculty).where(faculty.c.id == 10).values(capacity=4))
+            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4, 5, 6, 7, 8, 9]), faculty.c.capacity <= 0).values(capacity=5))
+            conn.execute(update(faculty).where(faculty.c.id == 10, faculty.c.capacity <= 0).values(capacity=4))
     except Exception:
         pass
 
@@ -244,8 +251,8 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             fac_cnt = conn.execute(select(func.count()).select_from(faculty)).scalar()
         if row and row[0] == digest and not force and fac_cnt and fac_cnt > 0:
             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning(f"Seed check error: {exc}")
 
     fac_rows = _read_csv(faculty_path)
     stu_rows = _read_csv(roster_path)
@@ -269,7 +276,7 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             if existing is None:
                 conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email, specialization=spec))
             else:
-                target_cap = max(cap, existing["selected_count"])
+                target_cap = cap if force else existing["capacity"]
                 conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email, specialization=spec))
         for r in stu_rows:
             reg = r["register_no"].upper()
@@ -301,6 +308,17 @@ def ensure_ready(engine):
     with _ready_lock:
         if key in _ready_for:
             return
+        # Ultra-fast path: if schema and seed already exist in this DB, return in ~1 roundtrip
+        try:
+            with engine.connect() as conn:
+                fac_cnt = conn.execute(select(func.count()).select_from(faculty)).scalar()
+                hash_row = conn.execute(select(settings_kv.c.value).where(settings_kv.c.key == "seed_hash")).first()
+            if fac_cnt and fac_cnt > 0 and hash_row:
+                _ready_for.add(key)
+                return
+        except Exception:
+            pass
+
         init_schema(engine)
         seed(engine)
         _ready_for.add(key)

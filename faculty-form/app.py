@@ -245,14 +245,9 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "opens_at": config.fmt_ist(opens) if opens else None,
             "server_now": t,
             "signed_in": False,
+            "faculty": [],
+            "etag": "",
         }
-        try:
-            fac_data, etag = get_cached_availability(get_engine(), max_age=1.0)
-            state_data["faculty"] = fac_data
-            state_data["etag"] = etag
-        except Exception:
-            state_data["faculty"] = []
-            state_data["etag"] = ""
 
         ident = session.get("identity")
         if not ident:
@@ -261,6 +256,14 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if ident.get("email") in auth.ADMIN_EMAILS or ident.get("register_no") == "7376257MB144":
             ident["is_admin"] = True
             session["identity"] = ident
+
+        try:
+            fac_data, etag = get_cached_availability(get_engine(), max_age=1.0)
+            state_data["faculty"] = fac_data
+            state_data["etag"] = etag
+        except Exception:
+            state_data["faculty"] = []
+            state_data["etag"] = ""
 
         role = ident.get("role", "student")
         is_admin = bool(ident.get("is_admin", False))
@@ -322,7 +325,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "domain": settings.email_domain,
         }
         initial_state = get_initial_state(include_attempt=True)
-        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v=int(time.time()))
+        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v="2026.2")
 
     @app.get("/healthz")
     def healthz():
@@ -777,7 +780,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/sync")
     def sync():
         token = request.headers.get("X-Sync-Token", "")
-        valid_tokens = [t for t in (settings.sync_token, settings.secret_key, "bitsathy-sync-2026") if t]
+        valid_tokens = [settings.sync_token] if settings.sync_token else []
         if not valid_tokens or token not in valid_tokens:
             return err("forbidden", "Forbidden.", 403)
         engine_ = get_engine()
