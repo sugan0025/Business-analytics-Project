@@ -76,8 +76,10 @@
   function stopTimers() {
     clearInterval(pollTimer); clearInterval(tickTimer); clearInterval(openTimer);
     pollTimer = tickTimer = openTimer = null;
-    timerEl.classList.add('hidden');
-    timerEl.classList.remove('warn');
+    if (timerEl) {
+      timerEl.classList.add('hidden');
+      timerEl.classList.remove('warn');
+    }
   }
 
   function titleCard({ required = false, extra = '', title = APP.title, subtitle = APP.description } = {}) {
