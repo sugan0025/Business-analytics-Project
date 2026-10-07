@@ -1,10 +1,11 @@
 id,name,capacity,email,specialization
-2,Dr Adhinarayanan B,5,adhinarayananb@bitsathy.ac.in,"HR, Marketing"
-3,Dr Satheesh Kumar T,5,,"Analytics, Marketing, HR"
+2,Dr Adhinarayanan B,4,adhinarayananb@bitsathy.ac.in,"HR, Marketing"
+3,Dr Satheesh Kumar T,4,satheeshkumart@bitsathy.ac.in,"Analytics, Marketing, HR"
 4,Prof. Senthil Kumar N,5,senthilkumar@bitsathy.ac.in,Finance & Marketing
 5,Prof. Nandhini B,5,nandhinib@bitsathy.ac.in,"Analytics, HR, Marketing"
 6,Prof. Mageswaran J,5,mageswaran@bitsathy.ac.in,"Marketing, HR"
 7,Prof. Dhanabalu S N,5,dhanabalusn@bitsathy.ac.in,"Finance, Marketing"
-8,Prof. Saranya S,5,,"Finance, Marketing"
+8,Prof. Saranya S,5,saranyasms@bitsathy.ac.in,"Finance, Marketing"
 9,Prof. Aishwariya M R,5,aishwariya@bitsathy.ac.in,"Finance, Marketing"
 10,Prof. Suganesh S,4,suganeshs@bitsathy.ac.in,"Analytics, Marketing"
+11,Dr Saraswathi C,2,saraswathic@bitsathy.ac.in,HR & Marketing

@@ -21,12 +21,15 @@ ADMIN_EMAILS = {"murugappans@bitsathy.ac.in", "suganeshs@bitsathy.ac.in", "sugan
 
 DEFAULT_FACULTY_MAP = {
     "adhinarayananb@bitsathy.ac.in": 2,
+    "satheeshkumart@bitsathy.ac.in": 3,
     "senthilkumar@bitsathy.ac.in": 4,
     "nandhinib@bitsathy.ac.in": 5,
     "mageswaran@bitsathy.ac.in": 6,
     "dhanabalusn@bitsathy.ac.in": 7,
+    "saranyasms@bitsathy.ac.in": 8,
     "aishwariya@bitsathy.ac.in": 9,
     "suganeshs@bitsathy.ac.in": 10,
+    "saraswathic@bitsathy.ac.in": 11,
 }
 
 

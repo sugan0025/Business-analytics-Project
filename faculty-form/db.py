@@ -39,6 +39,7 @@ FACULTY_SPECIALIZATIONS = {
     8: "Finance, Marketing",
     9: "Finance, Marketing",
     10: "Analytics, Marketing",
+    11: "HR & Marketing",
 }
 
 students = Table(
@@ -175,11 +176,12 @@ def init_schema(engine):
     except Exception:
         pass
 
-    # Set default 44 capacity only if faculty has no capacity assigned yet
+    # Set default 44 capacity: Suganesh 4, Sathish 4, Adhinarayan 4, Saraswathi 2, rest 5
     try:
         with engine.begin() as conn:
-            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4, 5, 6, 7, 8, 9]), faculty.c.capacity <= 0).values(capacity=5))
-            conn.execute(update(faculty).where(faculty.c.id == 10, faculty.c.capacity <= 0).values(capacity=4))
+            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 10])).values(capacity=4))
+            conn.execute(update(faculty).where(faculty.c.id == 11).values(capacity=2))
+            conn.execute(update(faculty).where(faculty.c.id.in_([4, 5, 6, 7, 8, 9])).values(capacity=5))
     except Exception:
         pass
 
