@@ -219,12 +219,15 @@ def create_app(settings=None, engine=None, sheets_client=None):
             })
 
         out = []
+        from db import FACULTY_SPECIALIZATIONS
         for i, f in enumerate(fac_rows, start=1):
             stus = by_fac.get(f["id"], [])
+            spec = f.get("specialization") or FACULTY_SPECIALIZATIONS.get(f["id"], "")
             out.append({
                 "s_no": i,
                 "id": f["id"],
                 "name": f["name"],
+                "specialization": spec,
                 "capacity": f["capacity"],
                 "selected_count": f["selected_count"],
                 "remaining": f["capacity"] - f["selected_count"],
@@ -567,7 +570,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.get("/api/faculty/dashboard")
     def faculty_dashboard():
         ident = current_identity()
-        if ident.get("role") != "faculty":
+        if ident.get("role") != "faculty" and not ident.get("is_admin"):
             return err("forbidden", "Faculty access required.", 403)
         data = get_faculty_dashboard_data(get_engine(), ident)
         return jsonify({"ok": True, **data})
@@ -575,7 +578,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/faculty/select-student")
     def faculty_select_student():
         ident = current_identity()
-        if ident.get("role") != "faculty":
+        if ident.get("role") != "faculty" and not ident.get("is_admin"):
             return err("forbidden", "Faculty access required.", 403)
         data = body_json()
         reg_no = str(data.get("register_no") or "").strip().upper()
@@ -596,11 +599,18 @@ def create_app(settings=None, engine=None, sheets_client=None):
             if already:
                 return err("already_selected", "You have already selected this student.", 400)
 
+            fac_id = ident.get("faculty_id") or 0
+            if not fac_id:
+                from db import faculty
+                fac_row = conn.execute(select(faculty).where(func.lower(faculty.c.email) == ident["email"].lower())).mappings().first()
+                if fac_row:
+                    fac_id = fac_row["id"]
+
         t = now()
         with engine_.begin() as conn:
             conn.execute(
                 insert(faculty_student_selections).values(
-                    faculty_id=ident.get("faculty_id") or 0,
+                    faculty_id=fac_id,
                     faculty_email=ident["email"],
                     faculty_name=ident["name"],
                     student_register_no=reg_no,
@@ -616,7 +626,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/faculty/delete-student-selection")
     def faculty_delete_student_selection():
         ident = current_identity()
-        if ident.get("role") != "faculty":
+        if ident.get("role") != "faculty" and not ident.get("is_admin"):
             return err("forbidden", "Faculty access required.", 403)
         data = body_json()
         entry_id = data.get("id")
@@ -634,8 +644,8 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/faculty/test-submit")
     def faculty_test_submit():
         ident = current_identity()
-        if ident.get("role") != "faculty":
-            return err("forbidden", "Faculty access required.", 403)
+        if ident.get("role") not in ("faculty", "director") and not ident.get("is_admin"):
+            return err("forbidden", "Access denied.", 403)
         data = body_json()
         fac_id = int(data.get("faculty_id", 0))
         engine_ = get_engine()
@@ -735,28 +745,32 @@ def create_app(settings=None, engine=None, sheets_client=None):
 
         invalidate_availability_cache()
 
-        # Immediate sync of this selection to Google Sheets so it appears instantly
+        # Ultra-fast non-blocking sheet sync so submit response returns instantly (<50ms)
         sheets = get_sheets()
         if sheets and not res.already and res.selection:
-            try:
-                row_val = [
-                    res.selection["seq"],
-                    config.fmt_ist(res.selection["created_ms"]),
-                    res.selection["name"],
-                    res.selection["register_no"],
-                    res.selection["email"],
-                    res.selection["faculty"]
-                ]
-                sheets.write_rows([(res.selection["seq"] + 1, row_val)])
-                from db import selections
-                with engine_.begin() as conn:
-                    conn.execute(
-                        update(selections)
-                        .where(selections.c.seq_id == res.selection["seq"])
-                        .values(synced=1, sync_error=None)
-                    )
-            except Exception as exc:
-                log.exception("Direct sheet sync error on submit")
+            def _async_sync_submitted_row(sel):
+                try:
+                    row_val = [
+                        sel["seq"],
+                        config.fmt_ist(sel["created_ms"]),
+                        sel["name"],
+                        sel["register_no"],
+                        sel["email"],
+                        sel["faculty"]
+                    ]
+                    sheets.write_rows([(sel["seq"] + 1, row_val)])
+                    from db import selections
+                    with engine_.begin() as conn:
+                        conn.execute(
+                            update(selections)
+                            .where(selections.c.seq_id == sel["seq"])
+                            .values(synced=1, sync_error=None)
+                        )
+                except Exception as exc:
+                    log.exception("Async sheet sync error on submit")
+
+            import threading
+            threading.Thread(target=_async_sync_submitted_row, args=(res.selection,), daemon=True).start()
 
         return jsonify({"ok": True, "already": res.already, "selection": sel_json(res.selection)})
 

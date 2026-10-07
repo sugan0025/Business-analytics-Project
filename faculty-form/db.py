@@ -21,9 +21,22 @@ faculty = Table(
     Column("capacity", Integer, nullable=False),
     Column("selected_count", Integer, nullable=False, server_default="0"),
     Column("email", String(200), nullable=True),
+    Column("specialization", String(200), nullable=True),
     CheckConstraint("selected_count >= 0", name="ck_selected_nonneg"),
     CheckConstraint("selected_count <= capacity", name="ck_selected_le_capacity"),
 )
+
+FACULTY_SPECIALIZATIONS = {
+    2: "HR, Marketing",
+    3: "Analytics, Marketing, HR",
+    4: "Finance & Marketing",
+    5: "Analytics, HR, Marketing",
+    6: "Marketing, HR",
+    7: "Finance, Marketing",
+    8: "Finance, Marketing",
+    9: "Finance, Marketing",
+    10: "Analytics, Marketing",
+}
 
 students = Table(
     "students", metadata,
@@ -140,11 +153,26 @@ def init_schema(engine):
     except Exception:
         pass
 
-    # Enforce capacities matching Google Sheet
+    # Migrate specialization column on faculty table if not present
     try:
         with engine.begin() as conn:
-            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4])).values(capacity=5))
-            conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
+            if "sqlite" in str(engine.url):
+                try:
+                    conn.execute(text("ALTER TABLE faculty ADD COLUMN specialization VARCHAR(200)"))
+                except Exception:
+                    pass
+            else:
+                conn.execute(text("ALTER TABLE faculty ADD COLUMN IF NOT EXISTS specialization VARCHAR(200)"))
+            for fid, spec in FACULTY_SPECIALIZATIONS.items():
+                conn.execute(update(faculty).where(faculty.c.id == fid).values(specialization=spec))
+    except Exception:
+        pass
+
+    # Enforce 44 total capacity: all faculties get 5 each, only Suganesh Sir (id=10) gets 4
+    try:
+        with engine.begin() as conn:
+            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4, 5, 6, 7, 8, 9])).values(capacity=5))
+            conn.execute(update(faculty).where(faculty.c.id == 10).values(capacity=4))
     except Exception:
         pass
 
@@ -236,12 +264,13 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
         for r in fac_rows:
             fid, cap = int(r["id"]), int(r["capacity"])
             fac_email = r.get("email", "").strip().lower() or None
+            spec = r.get("specialization", "").strip() or FACULTY_SPECIALIZATIONS.get(fid)
             existing = conn.execute(select(faculty).where(faculty.c.id == fid)).mappings().first()
             if existing is None:
-                conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email))
+                conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email, specialization=spec))
             else:
                 target_cap = max(cap, existing["selected_count"])
-                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email))
+                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email, specialization=spec))
         for r in stu_rows:
             reg = r["register_no"].upper()
             email = r.get("email", "").lower() or None

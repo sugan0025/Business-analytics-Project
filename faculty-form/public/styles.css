@@ -39,6 +39,10 @@ body {
   max-width: 640px;
   margin: 12px auto 80px;
   padding: 0 12px;
+  transition: max-width 0.25s ease;
+}
+.form-view.wide-view {
+  max-width: 1080px;
 }
 .loading { text-align: center; color: var(--text-secondary); padding: 80px 0; }
 .spinner {
@@ -480,6 +484,12 @@ select.text-input:focus { border-color: var(--primary); }
   border-color: var(--error);
 }
 
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ---- Master Overview Table (Google Forms Purple Theme) ---- */
 .master-fac-table {
   width: 100%;
@@ -490,8 +500,8 @@ select.text-input:focus { border-color: var(--primary); }
 .master-fac-table th {
   background: var(--primary);
   color: #ffffff;
-  font-weight: 500;
-  padding: 11px 14px;
+  font-weight: 600;
+  padding: 12px 14px;
   border: 1px solid #5b2fa8;
   white-space: nowrap;
   letter-spacing: 0.2px;
@@ -512,26 +522,52 @@ select.text-input:focus { border-color: var(--primary); }
   background: #fdfcfe;
 }
 .master-fac-table .merged-cell {
-  vertical-align: top;
+  vertical-align: middle;
+  text-align: center;
   background: #fbf9fe;
   border-right: 1.5px solid #d1c4e9;
   border-bottom: 1.5px solid #d1c4e9;
 }
 .master-fac-table .s-no-cell {
   text-align: center;
+  vertical-align: middle;
   font-weight: 600;
   color: var(--primary);
-  width: 50px;
+  width: 55px;
 }
 .master-fac-table .fac-name-cell {
   width: 220px;
   color: #202124;
+  text-align: center;
+  vertical-align: middle;
+}
+.master-fac-table .fac-name-cell b {
+  display: block;
+  text-align: center;
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+.fac-spec-sub {
+  color: #5f6368;
+  font-size: 11.5px;
+  font-weight: 500;
+  margin-top: 3px;
+  display: block;
+  text-align: center;
+}
+.fac-spec-tag {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: normal;
+  margin-left: 4px;
 }
 .fac-meta-sub {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 11px;
   font-weight: normal;
   color: var(--text-secondary);
+  display: block;
+  text-align: center;
 }
 .fac-meta-sub .badge-full {
   color: var(--error);

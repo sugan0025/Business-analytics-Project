@@ -100,9 +100,10 @@
     const isDirector = me && me.role === 'director';
     const isFac = me && me.role === 'faculty';
     const isAdmin = me && Boolean(me.is_admin);
+
     let subtitle = ' · Responses recorded to class roster';
     if (isDirector) subtitle = ' · Director Portal';
-    else if (isFac) subtitle = ' · Faculty Portal' + (isAdmin ? ' (Admin)' : '');
+    else if (isFac) subtitle = ' · Faculty Portal' + (isAdmin ? ' (Coordinator)' : '');
     else if (isAdmin) subtitle = ' · Administrator';
 
     return `
@@ -113,7 +114,6 @@
           <small>${esc(me.email)}${subtitle}</small>
         </div>
         ${isAdmin ? `<button class="preview-icon-btn" id="openAdminDashboardBtn" type="button" title="Open Admin Portal">${ico('list_alt')} Admin Portal</button>` : ''}
-        ${(isFac || isDirector) ? `<button class="preview-icon-btn" id="openPreviewBtn" type="button" title="Preview Form">${ico('preview')} Preview</button>` : ''}
         <button class="link-btn" id="switchBtn" type="button">Switch account</button>
       </div>`;
   }
@@ -132,10 +132,6 @@
     const adminBtn = $('#openAdminDashboardBtn');
     if (adminBtn) {
       adminBtn.addEventListener('click', () => showDirectorDashboard('master'));
-    }
-    const prevBtn = $('#openPreviewBtn');
-    if (prevBtn) {
-      prevBtn.addEventListener('click', () => showFacultyPreview('select_students'));
     }
   }
 
@@ -157,8 +153,18 @@
       if (me.etag) currentEtag = me.etag;
     }
     if (!me.signed_in) return showSignin();
-    if (me.role === 'director') return showDirectorDashboard();
-    if (me.role === 'faculty') return showFacultyDashboard();
+
+    // 1. Director & Coordinator Faculty (Suganesh Sir): land straight on Admin Portal (Master Overview table)
+    if (me.role === 'director' || (me.role === 'faculty' && me.is_admin)) {
+      return showDirectorDashboard('master');
+    }
+
+    // 2. Regular Faculty: land on Faculty Dashboard (ref second image)
+    if (me.role === 'faculty') {
+      return showFacultyDashboard('my_students');
+    }
+
+    // 3. Students (including Student Admin Suganesan S, who gets the form + [Admin Portal] button in account bar):
     if (me.selection) return showDone(me.selection, false);
     if (!me.is_open) return showClosed();
     return showForm(me.attempt);
@@ -189,6 +195,7 @@
 
   function showSignin(error) {
     stopTimers();
+    root.classList.remove('wide-view');
     root.innerHTML = titleCard() + `
       <div class="card">
         <div class="q-title">Sign in to continue</div>
@@ -295,6 +302,25 @@
   // ============================================================
   // MASTER OVERVIEW & CAPACITY MANAGEMENT HELPERS
   // ============================================================
+  // FACULTY SPECIALIZATIONS & MASTER OVERVIEW HELPERS
+  // ============================================================
+  const FACULTY_SPECS = {
+    2: 'HR, Marketing',
+    3: 'Analytics, Marketing, HR',
+    4: 'Finance & Marketing',
+    5: 'Analytics, HR, Marketing',
+    6: 'Marketing, HR',
+    7: 'Finance, Marketing',
+    8: 'Finance, Marketing',
+    9: 'Finance, Marketing',
+    10: 'Analytics, Marketing',
+  };
+
+  function facSpec(f) {
+    if (!f) return '';
+    return f.specialization || FACULTY_SPECS[f.id] || '';
+  }
+
   function renderMasterOverviewTable(overview) {
     if (!overview || !overview.length) {
       return `
@@ -308,6 +334,7 @@
     overview.forEach((f) => {
       const stus = f.students || [];
       const isFull = f.remaining <= 0;
+      const spec = facSpec(f);
       const statusBadge = isFull
         ? `<span class="badge-full">Full (${f.capacity}/${f.capacity})</span>`
         : `<span class="badge-avail">${f.selected_count}/${f.capacity} filled (${f.remaining} left)</span>`;
@@ -319,6 +346,7 @@
             <td rowspan="${span}" class="merged-cell s-no-cell">${f.s_no}</td>
             <td rowspan="${span}" class="merged-cell fac-name-cell">
               <b>${esc(f.name)}</b>
+              ${spec ? `<div class="fac-spec-sub">(${esc(spec)})</div>` : ''}
               <div class="fac-meta-sub">${statusBadge}</div>
             </td>
             <td><b>${esc(stus[0].name)}</b></td>
@@ -340,6 +368,7 @@
             <td class="merged-cell s-no-cell">${f.s_no}</td>
             <td class="merged-cell fac-name-cell">
               <b>${esc(f.name)}</b>
+              ${spec ? `<div class="fac-spec-sub">(${esc(spec)})</div>` : ''}
               <div class="fac-meta-sub">${statusBadge}</div>
             </td>
             <td colspan="3" class="empty-muted">No students selected yet</td>
@@ -353,7 +382,7 @@
           <thead>
             <tr>
               <th style="width: 55px; text-align: center;">S.No</th>
-              <th style="width: 220px;">Faculty</th>
+              <th style="width: 220px; text-align: center;">Faculty</th>
               <th>Students</th>
               <th>Register No</th>
               <th>Mail ID</th>
@@ -404,7 +433,7 @@
                 return `
                   <tr>
                     <td><b>${f.s_no}</b></td>
-                    <td><b>${esc(f.name)}</b></td>
+                    <td><b>${esc(f.name)}</b>${facSpec(f) ? ` <span class="fac-spec-sub" style="display:inline-block; margin-left:6px; font-weight:normal;">(${esc(facSpec(f))})</span>` : ''}</td>
                     <td><span style="color: var(--text-secondary);">${f.selected_count} filled (${f.capacity - f.selected_count} left)</span></td>
                     <td style="text-align: right;">
                       <select class="cap-select" data-fid="${f.id}" data-min="${f.selected_count}">
@@ -507,10 +536,11 @@
   }
 
   // ============================================================
-  // DIRECTOR PORTAL (DR MURUGAPPAN S)
+  // ADMIN & DIRECTOR DASHBOARD (Clean Master Table, No Preview)
   // ============================================================
   async function showDirectorDashboard(activeTab = 'master') {
     stopTimers();
+    root.classList.add('wide-view');
     let overview = me.master_overview;
     if (!overview) {
       const r = await api('GET', '/api/director/overview');
@@ -521,17 +551,35 @@
     }
     overview = overview || [];
 
+    const isDirector = me && me.role === 'director';
+    const isAdmin = Boolean(me && me.is_admin);
+    const isFacultyAdmin = me && me.role === 'faculty' && isAdmin;
+    const isStudentAdmin = me && me.role === 'student' && isAdmin;
+
+    // If faculty member doesn't have personal dashboard data loaded yet, fetch it
+    if (me && me.role === 'faculty' && !me.faculty_dashboard) {
+      const rF = await api('GET', '/api/faculty/dashboard');
+      if (rF.ok) me.faculty_dashboard = rF.data;
+    }
+
     const totalStudents = 44;
     const totalFilled = overview.reduce((acc, f) => acc + (f.selected_count || 0), 0);
     const totalCap = overview.reduce((acc, f) => acc + (f.capacity || 0), 0);
     const remainingStudents = Math.max(0, totalStudents - totalFilled);
 
+    let portalTitle = 'Admin Portal';
+    if (isDirector) portalTitle = 'Director Portal';
+    else if (isFacultyAdmin) portalTitle = 'Coordinator Portal';
+    else if (me && me.role === 'faculty') portalTitle = 'Faculty Portal';
+
+    let portalSub = `Master guide selection overview for <b>${esc(isDirector ? 'Dr Murugappan S (Director)' : (me.name || me.email))}</b>. All faculty allocations and student choices in real-time.`;
+
     root.innerHTML = `
       <div class="title-card">
         <div class="accent"></div>
         <div class="title-body">
-          <h1>${me && me.role === 'director' ? 'Director Portal' : 'Admin Portal'}</h1>
-          <p class="muted">Master guide selection overview for <b>${esc(me && me.role === 'director' ? 'Dr Murugappan S (Director)' : (me.name || me.email))}</b>. All faculty allocations and student choices in real-time.</p>
+          <h1>${portalTitle}</h1>
+          <p class="muted">${portalSub}</p>
         </div>
         ${accountBar()}
       </div>
@@ -564,61 +612,42 @@
         <button class="portal-tab ${activeTab === 'master' ? 'active' : ''}" id="tabDirectorMaster" type="button">
           ${ico('list_alt')} Master Department Overview
         </button>
+        ${(isDirector || isAdmin) ? `
         <button class="portal-tab ${activeTab === 'seats' ? 'active' : ''}" id="tabDirectorSeats" type="button">
           ⚙️ Seat Allocation & Quotas
-        </button>
+        </button>` : ''}
+        ${(me && me.role === 'faculty') ? `
+        <button class="portal-tab ${activeTab === 'my_students' ? 'active' : ''}" id="tabDirectorMyStudents" type="button">
+          👤 My Allocated Students (${(me.faculty_dashboard && me.faculty_dashboard.students_selected) ? me.faculty_dashboard.students_selected.length : 0})
+        </button>` : ''}
         ${me && me.selection ? `
         <button class="portal-tab" id="tabDirectorMySubmission" type="button">
           ${ico('check_circle')} My Submission
-        </button>` : (me && me.role === 'student' ? `
+        </button>` : (isStudentAdmin ? `
         <button class="portal-tab" id="tabDirectorSelectionForm" type="button">
           ${ico('assignment')} Selection Form
         </button>` : '')}
       </div>
 
-      <div id="directorTabContent">
-        ${activeTab === 'master' ? `
-          <div class="card">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-              <div class="q-title" style="margin-bottom: 0;">Faculty-Wise Student Selections</div>
-              <button class="btn-text" id="refreshDirectorBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
-                ${ico('refresh')} Refresh Live
-              </button>
-            </div>
-            ${renderMasterOverviewTable(overview)}
-          </div>
-        ` : renderSeatAllocationCard(overview)}
-      </div>
-
-      <div class="card" style="text-align: center; padding: 22px;">
-        <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 14px;">
-          Want to preview the student form experience?
-        </div>
-        <button class="btn-primary" id="openPreviewCta" type="button" style="display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
-          ${ico('preview')} Open Form Preview
-        </button>
-      </div>
+      <div id="directorTabContent"></div>
     `;
 
     bindSwitch();
-    const cta = $('#openPreviewCta');
-    if (cta) cta.addEventListener('click', () => showFacultyPreview('select_students'));
-
-    $('#tabDirectorMaster').addEventListener('click', () => showDirectorDashboard('master'));
-    $('#tabDirectorSeats').addEventListener('click', () => showDirectorDashboard('seats'));
-    const mySubBtn = $('#tabDirectorMySubmission');
-    if (mySubBtn) mySubBtn.addEventListener('click', () => showDone(me.selection, true));
-    const selFormBtn = $('#tabDirectorSelectionForm');
-    if (selFormBtn) {
-      selFormBtn.addEventListener('click', () => {
-        stopTimers();
-        if (me.selection) return showDone(me.selection, true);
-        if (!me.is_open) return showClosed();
-        return showForm(me.attempt);
-      });
-    }
+    const tabContent = $('#directorTabContent');
 
     if (activeTab === 'master') {
+      tabContent.innerHTML = `
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div class="q-title" style="margin-bottom: 0;">Faculty-Wise Student Selections</div>
+            <button class="btn-text" id="refreshDirectorBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
+              ${ico('refresh')} Refresh Live
+            </button>
+          </div>
+          ${renderMasterOverviewTable(overview)}
+        </div>
+      `;
+
       const refBtn = $('#refreshDirectorBtn');
       if (refBtn) {
         refBtn.addEventListener('click', async () => {
@@ -638,7 +667,7 @@
         if (r.ok) {
           me.master_overview = r.data.master_overview;
           const container = $('#directorTabContent');
-          if (container && $('#tabDirectorMaster').classList.contains('active')) {
+          if (container && $('#tabDirectorMaster') && $('#tabDirectorMaster').classList.contains('active')) {
             const tableWrap = container.querySelector('.table-responsive');
             if (tableWrap) {
               tableWrap.outerHTML = renderMasterOverviewTable(r.data.master_overview);
@@ -646,16 +675,128 @@
           }
         }
       }, 4000);
-    } else {
+    } else if (activeTab === 'seats') {
+      tabContent.innerHTML = renderSeatAllocationCard(overview);
       setupSeatAllocationHandlers(() => showDirectorDashboard('seats'));
+    } else if (activeTab === 'my_students') {
+      renderMyAllocatedStudentsTab(tabContent);
+    }
+
+    const tMaster = $('#tabDirectorMaster');
+    if (tMaster) tMaster.addEventListener('click', () => showDirectorDashboard('master'));
+    const tSeats = $('#tabDirectorSeats');
+    if (tSeats) tSeats.addEventListener('click', () => showDirectorDashboard('seats'));
+    const tStudents = $('#tabDirectorMyStudents');
+    if (tStudents) tStudents.addEventListener('click', () => showDirectorDashboard('my_students'));
+    const mySubBtn = $('#tabDirectorMySubmission');
+    if (mySubBtn) mySubBtn.addEventListener('click', () => {
+      stopTimers();
+      root.classList.remove('wide-view');
+      showDone(me.selection, true);
+    });
+    const selFormBtn = $('#tabDirectorSelectionForm');
+    if (selFormBtn) {
+      selFormBtn.addEventListener('click', () => {
+        stopTimers();
+        root.classList.remove('wide-view');
+        if (me.selection) return showDone(me.selection, true);
+        if (!me.is_open) return showClosed();
+        return showForm(me.attempt);
+      });
+    }
+  }
+
+  function renderMyAllocatedStudentsTab(container) {
+    const dash = me.faculty_dashboard;
+    const fac = (dash && dash.faculty) || { name: me.name, capacity: 5, selected_count: 0, remaining: 5 };
+    const spec = facSpec(fac);
+    const students = (dash && dash.students_selected) || [];
+    const pct = fac.capacity > 0 ? Math.round((Math.max(0, fac.selected_count) / fac.capacity) * 100) : 0;
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="q-title" style="margin-bottom: 14px;">Your Allocation Status (${esc(fac.name)}${spec ? ` - ${esc(spec)}` : ''})</div>
+        <div class="fac-stat-grid">
+          <div class="fac-stat-card">
+            <div class="val">${esc(fac.capacity)}</div>
+            <div class="lbl">Total Seat Capacity</div>
+          </div>
+          <div class="fac-stat-card">
+            <div class="val">${esc(fac.selected_count)}</div>
+            <div class="lbl">Students Allocated</div>
+          </div>
+          <div class="fac-stat-card">
+            <div class="val" style="color: ${fac.remaining > 0 ? 'var(--ok)' : 'var(--error)'};">${esc(fac.remaining)}</div>
+            <div class="lbl">Remaining Seats</div>
+          </div>
+        </div>
+        <div class="meter-bar" style="height: 10px; margin-bottom: 4px;">
+          <div class="meter-fill ${fac.remaining <= 0 ? 'full' : ''}" style="width: ${pct}%;"></div>
+        </div>
+        <div class="hint" style="text-align: right; font-size: 12px; margin-top: 6px;">${pct}% capacity filled</div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <div class="q-title" style="margin-bottom: 0;">Students Who Selected You (${students.length})</div>
+          <button class="btn-text" id="refreshMyStudentsBtn" type="button" style="padding: 4px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px;">
+            ${ico('refresh')} Refresh
+          </button>
+        </div>
+
+        ${students.length ? `
+        <div class="table-responsive">
+          <table class="fac-table">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th style="width: 140px;">Register No</th>
+                <th>Student Name</th>
+                <th>Student Email</th>
+                <th style="width: 140px;">Selection Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${students.map((s, idx) => `
+                <tr>
+                  <td style="text-align: center;"><b>${idx + 1}</b></td>
+                  <td><span class="reg-chip">${esc(s.register_no)}</span></td>
+                  <td><b>${esc(s.name)}</b></td>
+                  <td><span style="color: var(--text-secondary);">${esc(s.email)}</span></td>
+                  <td style="color: var(--text-secondary); font-size: 12px;">${esc(s.time)} IST</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>` : `
+        <div class="empty-table">
+          ${ico('account_circle')}
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 4px;">No students have selected you yet</div>
+          <div style="font-size: 13px;">When students submit their choices on the live form, they will appear here in real-time.</div>
+        </div>`}
+      </div>
+    `;
+
+    const refBtn = $('#refreshMyStudentsBtn');
+    if (refBtn) {
+      refBtn.addEventListener('click', async () => {
+        refBtn.textContent = 'Refreshing…';
+        const r = await api('GET', '/api/faculty/dashboard');
+        if (r.ok) {
+          me.faculty_dashboard = r.data;
+          showDirectorDashboard('my_students');
+        }
+      });
     }
   }
 
   // ============================================================
-  // FACULTY PORTAL & DASHBOARD
+  // REGULAR FACULTY PORTAL & DASHBOARD (Ref Second Image)
   // ============================================================
   async function showFacultyDashboard(activeTab = 'my_students') {
     stopTimers();
+    root.classList.add('wide-view');
+
     let dash = me.faculty_dashboard;
     if (!dash) {
       const r = await api('GET', '/api/faculty/dashboard');
@@ -666,6 +807,7 @@
     }
 
     const fac = (dash && dash.faculty) || { name: me.name, capacity: 5, selected_count: 0, remaining: 5 };
+    const spec = facSpec(fac);
     const students = (dash && dash.students_selected) || [];
     const pct = fac.capacity > 0 ? Math.round((Math.max(0, fac.selected_count) / fac.capacity) * 100) : 0;
     const overview = me.master_overview || [];
@@ -676,7 +818,7 @@
         <div class="accent"></div>
         <div class="title-body">
           <h1>Faculty Portal</h1>
-          <p class="muted">Guide allocation portal for <b>${esc(fac.name)}</b>. Monitor student selections in real-time.</p>
+          <p class="muted">Guide allocation dashboard for <b>${esc(fac.name)}</b>${spec ? ` (${esc(spec)})` : ''}. Monitor student selections in real-time.</p>
         </div>
         ${accountBar()}
       </div>
@@ -731,17 +873,17 @@
               <table class="fac-table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>Register No</th>
+                    <th style="width: 40px; text-align: center;">#</th>
+                    <th style="width: 140px;">Register No</th>
                     <th>Student Name</th>
                     <th>Student Email</th>
-                    <th>Selection Time</th>
+                    <th style="width: 140px;">Selection Time</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${students.map((s, idx) => `
                     <tr>
-                      <td><b>${idx + 1}</b></td>
+                      <td style="text-align: center;"><b>${idx + 1}</b></td>
                       <td><span class="reg-chip">${esc(s.register_no)}</span></td>
                       <td><b>${esc(s.name)}</b></td>
                       <td><span style="color: var(--text-secondary);">${esc(s.email)}</span></td>
@@ -757,6 +899,15 @@
               <div style="font-size: 13px;">When students submit their choices on the live form, they will appear here in real-time.</div>
             </div>`}
           </div>
+
+          <div class="card" style="text-align: center; padding: 22px;">
+            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 14px;">
+              Need to test the form flow or submit faculty student selections?
+            </div>
+            <button class="btn-primary" id="openFacultyPreviewBtn" type="button" style="display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
+              ${ico('preview')} Open Google Form Preview & Test Mode
+            </button>
+          </div>
         ` : activeTab === 'dept_overview' ? `
           <div class="card">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
@@ -769,23 +920,18 @@
           </div>
         ` : renderSeatAllocationCard(overview)}
       </div>
-
-      <div class="card" style="text-align: center; padding: 22px;">
-        <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 14px;">
-          Need to test the form flow or submit faculty student selections?
-        </div>
-        <button class="btn-primary" id="openPreviewCta" type="button" style="display: inline-flex; align-items: center; gap: 6px; margin: 0 auto;">
-          ${ico('preview')} Open Google Form Preview & Test Mode
-        </button>
-      </div>
     `;
 
     bindSwitch();
-    const cta = $('#openPreviewCta');
+
+    const cta = $('#openFacultyPreviewBtn');
     if (cta) cta.addEventListener('click', () => showFacultyPreview('select_students'));
 
-    $('#tabFacMyStudents').addEventListener('click', () => showFacultyDashboard('my_students'));
-    $('#tabFacDeptOverview').addEventListener('click', async () => {
+    const tabStudents = $('#tabFacMyStudents');
+    if (tabStudents) tabStudents.addEventListener('click', () => showFacultyDashboard('my_students'));
+
+    const tabDept = $('#tabFacDeptOverview');
+    if (tabDept) tabDept.addEventListener('click', async () => {
       if (!me.master_overview) {
         const r = await api('GET', '/api/director/overview');
         if (r.ok) me.master_overview = r.data.master_overview;
@@ -793,15 +939,14 @@
       showFacultyDashboard('dept_overview');
     });
 
-    if (isAdmin && $('#tabFacManageSeats')) {
-      $('#tabFacManageSeats').addEventListener('click', async () => {
-        if (!me.master_overview) {
-          const r = await api('GET', '/api/director/overview');
-          if (r.ok) me.master_overview = r.data.master_overview;
-        }
-        showFacultyDashboard('manage_seats');
-      });
-    }
+    const tabSeats = $('#tabFacManageSeats');
+    if (tabSeats) tabSeats.addEventListener('click', async () => {
+      if (!me.master_overview) {
+        const r = await api('GET', '/api/director/overview');
+        if (r.ok) me.master_overview = r.data.master_overview;
+      }
+      showFacultyDashboard('manage_seats');
+    });
 
     if (activeTab === 'my_students') {
       const refBtn = $('#refreshDashBtn');
@@ -847,10 +992,12 @@
   }
 
   // ============================================================
-  // FACULTY PREVIEW & TEST MODES
+  // FACULTY PREVIEW & TEST MODES (Ref First Image)
   // ============================================================
   async function showFacultyPreview(subMode = 'select_students') {
     stopTimers();
+    root.classList.add('wide-view');
+
     let dash = me.faculty_dashboard;
     if (!dash) {
       const r = await api('GET', '/api/faculty/dashboard');
@@ -863,15 +1010,15 @@
     root.innerHTML = `
       <div class="preview-toolbar">
         <div class="preview-toolbar-left">
-          <button class="exit-btn" id="exitPreviewBtn" type="button">
+          <button class="btn-text" id="exitPreviewBtn" type="button" style="display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500;">
             ${ico('arrow_back')} Back to Dashboard
           </button>
         </div>
         <div class="mode-tabs">
-          <button class="mode-tab ${subMode === 'select_students' ? 'active' : ''}" id="tabFacultySelect" type="button">
+          <button class="portal-tab ${subMode === 'select_students' ? 'active' : ''}" id="tabFacultySelect" type="button">
             ${ico('list_alt')} Select Students (Faculty Data)
           </button>
-          <button class="mode-tab ${subMode === 'test_mode' ? 'active' : ''}" id="tabTestMode" type="button">
+          <button class="portal-tab ${subMode === 'test_mode' ? 'active' : ''}" id="tabTestMode" type="button">
             ${ico('science')} Test Mode (Student Flow)
           </button>
         </div>
@@ -879,13 +1026,13 @@
       <div id="previewContent"></div>
     `;
 
-    $('#exitPreviewBtn').addEventListener('click', () => showFacultyDashboard());
+    $('#exitPreviewBtn').addEventListener('click', () => showFacultyDashboard('my_students'));
     $('#tabFacultySelect').addEventListener('click', () => showFacultyPreview('select_students'));
     $('#tabTestMode').addEventListener('click', () => showFacultyPreview('test_mode'));
 
     const container = $('#previewContent');
     if (subMode === 'select_students') {
-      renderFacultyStudentSelection(container, dash.all_students || [], dash.faculty_selections || []);
+      renderFacultyStudentSelection(container, (dash && dash.all_students) || [], (dash && dash.faculty_selections) || []);
     } else {
       renderFacultyTestMode(container);
     }
@@ -1006,12 +1153,26 @@
 
       <div class="card" id="facCard">
         <div class="q-title">Select your faculty <span class="req">*</span></div>
-        <div class="options" id="options"></div>
+        <div class="options" id="previewOptions">
+          ${faculty.map(f => {
+            const spec = facSpec(f);
+            const specHtml = spec ? ` <span class="fac-spec-tag">(${esc(spec)})</span>` : '';
+            return `
+              <label class="option" data-id="${f.id}">
+                <input type="radio" name="previewFaculty" value="${f.id}" />
+                <span class="radio"></span>
+                <span class="name">${esc(f.name)} ${f.name === me.name ? '(You)' : ''}${specHtml}</span>
+                <span class="seats">${f.remaining} seats left</span>
+              </label>`;
+          }).join('')}
+        </div>
         <div class="q-error">${ico('error_outline')}<span id="facErrorText">This is a required question</span></div>
       </div>
 
       <div class="submit-area">
-        <button class="btn-primary" id="testSubmitBtn" type="button">Submit Test Selection</button>
+        <button class="btn-primary" id="testSubmitBtn" type="button" style="display: inline-flex; align-items: center; gap: 6px;">
+          ${ico('science')} Submit Test Selection
+        </button>
         <button class="btn-text" id="testClearBtn" type="button">Clear choice</button>
       </div>
 
@@ -1022,33 +1183,27 @@
 
     bindSwitch();
 
-    // Render all faculty options for testing
-    const box = $('#options');
-    box.innerHTML = faculty.map(f => `
-      <label class="option" data-id="${f.id}">
-        <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
-        <span class="radio"></span>
-        <span class="name">${esc(f.name)} ${f.name === me.name ? '(You)' : ''}</span>
-        <span class="seats">${f.remaining} seats left</span>
-      </label>
-    `).join('');
-
-    box.addEventListener('change', (e) => {
-      if (e.target.name === 'faculty') {
-        selectedId = Number(e.target.value);
-        markError('facCard', false);
-      }
-    });
+    const facCard = $('#facCard');
+    const optionsBox = $('#previewOptions');
+    if (optionsBox) {
+      optionsBox.addEventListener('change', (e) => {
+        if (e.target.name === 'previewFaculty') {
+          selectedId = Number(e.target.value);
+          facCard.classList.remove('has-error');
+        }
+      });
+    }
 
     $('#testClearBtn').addEventListener('click', () => {
       selectedId = null;
-      root.querySelectorAll('#options input').forEach(inp => { inp.checked = false; });
+      if (optionsBox) optionsBox.querySelectorAll('input').forEach(inp => { inp.checked = false; });
+      facCard.classList.remove('has-error');
     });
 
     $('#testSubmitBtn').addEventListener('click', async () => {
       if (!selectedId) {
-        markError('facCard', true, 'Please select a faculty member to test.');
-        return;
+        facCard.classList.add('has-error');
+        return toast('Please select a faculty member to test.');
       }
       const btn = $('#testSubmitBtn');
       btn.disabled = true;
@@ -1064,6 +1219,7 @@
   }
 
   function showTestDone(container, sel) {
+    const spec = facSpec(sel.faculty);
     container.innerHTML = `
       <div class="banner-notice">
         ${ico('check_circle')}
@@ -1083,7 +1239,7 @@
 
       <div class="card">
         <div class="done-tick">${ico('check_circle')} Test Simulation Confirmed</div>
-        <div class="detail-row"><div class="k">Selected Faculty</div><div class="v"><b>${esc(sel.faculty)}</b></div></div>
+        <div class="detail-row"><div class="k">Selected Faculty</div><div class="v"><b>${esc(sel.faculty)}${spec ? ` (${esc(spec)})` : ''}</b></div></div>
         <div class="detail-row"><div class="k">Tester Name</div><div class="v">${esc(sel.name)}</div></div>
         <div class="detail-row"><div class="k">Simulated Reg No</div><div class="v">${esc(sel.register_no)}</div></div>
         <div class="detail-row"><div class="k">Test Timestamp</div><div class="v">${esc(sel.time)} IST</div></div>
@@ -1095,14 +1251,14 @@
           ${ico('science')} Test Another Selection
         </button>
         <button class="btn-text" id="testBackDashBtn" type="button">
-          Back to Faculty Dashboard
+          ← Back to Faculty Dashboard
         </button>
       </div>
     `;
 
     bindSwitch();
     $('#testAgainBtn').addEventListener('click', () => showFacultyPreview('test_mode'));
-    $('#testBackDashBtn').addEventListener('click', () => showFacultyDashboard());
+    $('#testBackDashBtn').addEventListener('click', () => showFacultyDashboard('my_students'));
   }
 
   // ============================================================
@@ -1110,6 +1266,7 @@
   // ============================================================
   function showClosed() {
     stopTimers();
+    root.classList.remove('wide-view');
     const notYet = me.reason === 'not_open';
     root.innerHTML = titleCard() + `
       <div class="card">
@@ -1137,6 +1294,7 @@
 
   async function showForm(preloadedAttempt) {
     stopTimers();
+    root.classList.remove('wide-view');
     const strict = me.register_no != null;
     const regCard = strict
       ? `<input class="text-input" value="${esc(me.register_no)}" readonly />`
@@ -1252,13 +1410,17 @@
       box.innerHTML = '<div style="padding:14px;color:var(--text-secondary);font-size:13px;text-align:center;">Loading faculty choices…</div>';
       return;
     }
-    box.innerHTML = faculty.map(f => `
+    box.innerHTML = faculty.map(f => {
+      const spec = facSpec(f);
+      const specHtml = spec ? ` <span class="fac-spec-tag">(${esc(spec)})</span>` : '';
+      return `
       <label class="option" data-id="${f.id}">
         <input type="radio" name="faculty" value="${f.id}" ${selectedId === f.id ? 'checked' : ''} />
         <span class="radio"></span>
-        <span class="name">${esc(f.name)}</span>
+        <span class="name">${esc(f.name)}${specHtml}</span>
         <span class="seats"></span>
-      </label>`).join('');
+      </label>`;
+    }).join('');
 
     box.addEventListener('change', (e) => {
       if (e.target.name === 'faculty') {
@@ -1395,6 +1557,7 @@
 
   function showDone(sel, already) {
     stopTimers();
+    root.classList.remove('wide-view');
     me.selection = sel;
     const isSuganesan = (me.register_no === '7376257MB144') || ((me.email || '').toLowerCase().includes('suganesan'));
 
@@ -1409,7 +1572,7 @@
       </div>
       <div class="card">
         <div class="done-tick">${ico('check_circle')}${already ? 'You have already submitted' : 'Selection confirmed'}</div>
-        <div class="detail-row"><div class="k">Faculty</div><div class="v"><b>${esc(sel.faculty)}</b></div></div>
+        <div class="detail-row"><div class="k">Faculty</div><div class="v"><b>${esc(sel.faculty)}${facSpec(sel.faculty) ? ` (${esc(facSpec(sel.faculty))})` : ''}</b></div></div>
         <div class="detail-row"><div class="k">Name</div><div class="v">${esc(sel.name)}</div></div>
         <div class="detail-row"><div class="k">Register number</div><div class="v">${esc(sel.register_no)}</div></div>
         <div class="detail-row"><div class="k">Submitted at</div><div class="v">${esc(sel.time)} IST</div></div>

@@ -76,11 +76,17 @@ def selection_view(row):
 
 
 def availability(engine):
+    from db import FACULTY_SPECIALIZATIONS
     with engine.connect() as conn:
         rows = conn.execute(select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)).mappings().all()
     return [
-        {"id": r["id"], "name": r["name"], "capacity": r["capacity"],
-         "remaining": max(r["capacity"] - r["selected_count"], 0)}
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "capacity": r["capacity"],
+            "specialization": r.get("specialization") or FACULTY_SPECIALIZATIONS.get(r["id"], ""),
+            "remaining": max(r["capacity"] - r["selected_count"], 0)
+        }
         for r in rows
     ]
 

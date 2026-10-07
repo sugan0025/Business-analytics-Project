@@ -286,9 +286,9 @@ def reconcile_sheet_and_db(engine, client) -> dict:
     resequence_selections(engine)
 
     with engine.begin() as conn:
-        # Enforce correct capacities
-        conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4])).values(capacity=5))
-        conn.execute(update(faculty).where(faculty.c.id.in_([5, 6, 7, 8, 9, 10])).values(capacity=4))
+        # Enforce 44 total capacity: 5 for each faculty, 4 for Suganesh Sir (id=10)
+        conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4, 5, 6, 7, 8, 9])).values(capacity=5))
+        conn.execute(update(faculty).where(faculty.c.id == 10).values(capacity=4))
 
         from sqlalchemy import func
         fac_counts = conn.execute(
