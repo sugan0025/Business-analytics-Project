@@ -1,102 +1,144 @@
-# Faculty Guide Selection System
+# Faculty Guide Selection ⚡
 
-> **A high-concurrency, FCFS faculty selection platform with zero race conditions, sub-250ms authenticated latency, and real-time Google Sheets reconciliation.**
+> High-concurrency, real-time faculty guide selection platform with zero race conditions, sub-250ms authenticated latency, and automatic Google Sheets reconciliation.
 
-🔗 **Live Application:** [faculty-selection-bitsathy.vercel.app](https://faculty-selection-bitsathy.vercel.app)  
-📄 **Hackathon Presentation Brief:** [`Faculty_Guide_Selection_Hackathon.pdf`](Faculty_Guide_Selection_Hackathon.pdf)
+Built with **Python 3.12 · Flask · PostgreSQL · Vercel Serverless · Google Sheets API v4 · Google Identity Services · Vanilla JS · Modern CSS**.
 
----
-
-## 📌 Overview
-
-A streamlined, Google Forms-inspired selection application engineered for high-concurrency student allocation:
-* **Strict College OAuth & Verification:** Students authenticate with institute Google Workspace accounts (`@bitsathy.ac.in`). Register numbers and names are securely bound to roster entries.
-* **Atomic FCFS Seat Claims:** Database-level transactional locking (`SELECT FOR UPDATE` / atomic UPDATE) prevents race conditions, ensuring no two students can ever claim the same final seat.
-* **Sub-250ms Latency:** Optimized post-login pipeline with Google RSA public key caching, preloaded dashboard states, and single-connection database pooling.
-* **Serverless Google Sheets Sync:** Every confirmed selection is mirrored directly to Google Sheets with zero duplicate entries and resilient offline buffering.
-* **Mobile & Cross-Browser Hardened:** Native-feeling web app supporting iOS Safari (`100dvh`, notch safe-areas), Android Chrome, Firefox, and desktop browsers.
+🔗 **Live Deployment:** [faculty-selection-bitsathy.vercel.app](https://faculty-selection-bitsathy.vercel.app)
 
 ---
 
-## 📂 Repository Structure
+## 🌟 Features
 
-```
-.
-├── Faculty_Guide_Selection_Hackathon.pdf   # 2-Page Executive Hackathon PDF Brief
-├── generate_hackathon_pdf.py               # Automated PDF generator with ReportLab
-├── pdf_assets/                             # High-resolution charts, SVGs, and UI captures
-└── faculty-form/                           # Complete Web Application
-    ├── app.py                              # Flask application & optimized REST APIs
-    ├── auth.py                             # Fast Google JWT verification & cert cache
-    ├── allocation.py                       # Atomic seat locking & allocation logic
-    ├── db.py                               # PostgreSQL / SQLite connection pooling
-    ├── sheets_sync.py                      # Google Sheets API background sync
-    ├── config.py                           # Application configuration
-    ├── manage.py                           # CLI admin tools (reset, sync, audit)
-    ├── roster.csv                          # Student roster with verified emails
-    ├── faculty.csv                         # Faculty list with seat caps
-    ├── api/
-    │   └── index.py                        # Vercel serverless gateway
-    ├── static/                             # Frontend styles, scripts & icons
-    └── tests/                              # Pytest test suite (43 test cases)
-```
+- **Atomic FCFS Seat Allocation** — Single-transaction row-level locking (`SELECT FOR UPDATE` / atomic updates) ensures two students can never claim the same last seat simultaneously.
+- **Institutional Google OAuth** — Strict `@bitsathy.ac.in` domain and pre-seeded roster verification. Register number and student name are permanently bound to verified email identity.
+- **Sub-250ms Instant Experience** — Zero waterfall loading; returns preloaded state directly upon authentication, eliminating jarring spinners and intermediate screen flicker.
+- **Google Public Key Caching** — In-memory caching of Google's RSA public certificates with automatic TTL expiry, reducing auth roundtrips from ~1.5s to under 50ms.
+- **Real-Time Google Sheets Sync** — All confirmed allocations mirror directly to Google Sheets with automatic retry buffering and idempotent row indexing.
+- **60-Second Selection Timer** — Countdown timer to prevent seat hoarding during active allocation rush.
+- **Cross-Browser & Mobile Hardened** — Fully optimized for iOS Safari (`100dvh`, notch safe-areas, `-webkit-tap-highlight-color: transparent`), Android Chrome, and Firefox.
+- **Keyboard Quick Navigation** — Instant number key selection (`1-9`, `0`) and hotkey confirmations for lightning-fast submission.
 
 ---
 
-## ⚡ Tech Stack & Architecture
-
-| Layer | Technology | Key Responsibility |
-|---|---|---|
-| **Frontend** | Vanilla JS, Modern CSS (100dvh, Glassmorphism) | Smooth state transitions, keyboard navigation (1-9, 0), zero flicker |
-| **Backend** | Python 3.12, Flask, Vercel Serverless | Stateless API endpoints, fast token validation |
-| **Database** | PostgreSQL (Neon / Supabase) | Atomic row-level locking for seat allocation |
-| **Integration**| Google Sheets API v4 | Real-time synchronized responses & summary tab |
-| **Auth** | Google OAuth 2.0 (Identity Services) | Strict institutional domain & roster validation |
-
----
-
-## 🚀 Quick Start (Local Development)
+## ⚡ Quick start
 
 ```bash
-cd faculty-form
+# 1. Clone repository
+git clone https://github.com/sugan0025/Business-analytics-Project.git
+cd Business-analytics-Project/faculty-form
 
-# 1. Create and activate virtual environment
+# 2. Set up virtual environment
 python -m venv .venv
-source .venv/bin/activate       # On Windows: .venv\Scripts\activate
+# On Windows:
+.venv\Scripts\activate
+# On Linux/macOS:
+source .venv/bin/activate
 
-# 2. Install dependencies
+# 3. Install dependencies
 pip install -r requirements-dev.txt
 
-# 3. Run comprehensive test suite
+# 4. Configure environment
+cp .env.example .env
+# 👉 Add GOOGLE_CLIENT_ID
+# 👉 Add GOOGLE_SERVICE_ACCOUNT_JSON
+# 👉 Add DATABASE_URL (or leave blank to use local SQLite)
+# 👉 Set DEV_LOGIN=1 for testing locally without Google credentials
+
+# 5. Run test suite
 pytest
 
-# 4. Start local development server
-cp .env.example .env
+# 6. Start local development server
 flask --app app run -p 5000
 ```
 
+Open http://localhost:5000 — the app is running locally.
+
 ---
 
-## 🛠️ Admin & CLI Operations
+## 🔑 Environment Variables & Setup
 
-Manage the allocation session via `manage.py`:
+Create a `.env` file inside `faculty-form/` based on `.env.example`:
 
-```bash
-# View current faculty seat fill status
-python manage.py status
+| Variable | Description | Required | Default |
+|---|---|---|---|
+| `SECRET_KEY` | Session signing secret key | Yes | Random string |
+| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Web Client ID | Yes (Production) | — |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON credentials for Google Sheets API | Yes (Production) | — |
+| `GOOGLE_SHEET_ID` | Google Spreadsheet ID for live responses | Yes (Production) | `1n6X-h_8SkutNImAgkLsbxogW5Qz8yD6-Z8SyhiNp2BI` |
+| `DATABASE_URL` | PostgreSQL connection string (Neon / Supabase) | Yes (Production) | SQLite `faculty.db` |
+| `ALLOWED_EMAIL_DOMAIN` | Institutional email domain | No | `bitsathy.ac.in` |
+| `SELECTION_WINDOW_SECONDS` | Time allotted to select faculty | No | `60` |
+| `DEV_LOGIN` | Bypass Google login for offline testing | No | `0` |
 
-# List all allocations in exact FCFS order
-python manage.py list
+---
 
-# Free a seat for a specific student
-python manage.py reset <REGISTER_NUMBER>
+## 📁 Project structure
 
-# Sync pending database responses to Google Sheets
-python manage.py sync
+```
+Business-analytics-Project/
+└── faculty-form/
+    ├── app.py              # Flask app, preloaded state & REST APIs
+    ├── auth.py             # Google OAuth JWT validation & RSA key cache
+    ├── allocation.py       # Atomic FCFS seat allocation logic
+    ├── db.py               # PostgreSQL connection pool & SQLite fallback
+    ├── sheets_sync.py      # Google Sheets API background reconciliation
+    ├── config.py           # Configuration & environment loader
+    ├── manage.py           # Organiser CLI (status, list, reset, sync)
+    ├── roster.csv          # Student roster with verified college emails
+    ├── faculty.csv         # Faculty list & maximum seat limits
+    ├── api/
+    │   └── index.py        # Vercel serverless gateway
+    ├── public/
+    │   ├── form.js         # Frontend logic, timer, keyboard shortcuts
+    │   └── styles.css      # Modern responsive styles (100dvh, iOS fixes)
+    ├── templates/
+    │   └── index.html      # Accessible form template
+    └── tests/              # 43 automated unit & concurrency tests
 ```
 
 ---
 
-## 📄 Documentation
+## 🛠️ Tech stack
 
-For in-depth setup, Google Cloud credentials provisioning, and Vercel environment variable settings, see the detailed [Faculty Form Documentation](faculty-form/README.md).
+| Layer | Choice |
+|---|---|
+| Backend | Python 3.12 + Flask |
+| Serverless | Vercel Serverless Functions (`@vercel/python`) |
+| Database | PostgreSQL (Neon / Supabase) + `psycopg3` / SQLite |
+| Cloud Integration | Google Sheets API v4 (`google-api-python-client`) |
+| Authentication | Google Identity Services (OAuth 2.0 JWT) |
+| Frontend | Vanilla JavaScript (ES6+), Modern CSS (100dvh, Glassmorphism) |
+| Testing | pytest (43 unit, concurrency & failure tests) |
+
+---
+
+## 📋 Admin & CLI commands
+
+Manage allocations, audit logs, and sheet synchronization directly from the terminal:
+
+```bash
+# View live faculty seat counts and fill status
+python manage.py status
+
+# List all submitted selections in exact FCFS order
+python manage.py list
+
+# Free a seat for a student (clears database & Google Sheets row)
+python manage.py reset 7376257MB101
+
+# Re-push any pending/buffered rows to Google Sheets
+python manage.py sync
+
+# Initialize Google Sheet tabs (Responses + Summary)
+python manage.py init-sheet
+
+# Export full allocation dataset to CSV
+python manage.py export export.csv
+```
+
+---
+
+## 📄 License
+
+MIT

@@ -1,11 +1,42 @@
+# Environment variables & secrets
 .env
+*.env
+.env.*
+!.env.example
 credentials.json
+token.json
+service_account.json
+client_secret*.json
+*.pem
+*.key
+
+# Databases & local stores
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
+
+# Python bytecode & virtual environments
 __pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
+ENV/
+env/
+
+# Cloud deployments & build artifacts
 .vercel/
 *.zip
+*.tar.gz
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
