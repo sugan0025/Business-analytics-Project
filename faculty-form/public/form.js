@@ -1047,9 +1047,7 @@
                   </td>
                   <td style="text-align: center; white-space: nowrap;">
                     <button class="icon-btn edit-faculty-btn" data-fid="${f.id}" title="Edit Faculty">✏️</button>
-                    ${f.selected_count === 0 ? `
-                      <button class="icon-btn icon-btn-delete delete-faculty-btn" data-fid="${f.id}" data-name="${esc(f.name)}" title="Delete Faculty">🗑️</button>
-                    ` : ''}
+                    <button class="icon-btn icon-btn-delete delete-faculty-btn" data-fid="${f.id}" data-name="${esc(f.name)}" data-count="${f.selected_count}" title="Delete Faculty">🗑️</button>
                   </td>
                 </tr>
               `).join('')}
@@ -1073,7 +1071,8 @@
         btn.addEventListener('click', () => {
           const fid = Number(btn.dataset.fid);
           const name = btn.dataset.name;
-          confirmDeleteFaculty(fid, name);
+          const count = Number(btn.dataset.count || 0);
+          confirmDeleteFaculty(fid, name, count);
         });
       });
     }
@@ -1245,16 +1244,22 @@
     });
   }
 
-  function confirmDeleteFaculty(fid, name) {
+  function confirmDeleteFaculty(fid, name, count = 0) {
     showModal({
       title: `🗑️ Delete Faculty`,
       bodyHtml: `
         <p style="margin: 0; color: var(--text-primary); line-height: 1.5;">
           Are you sure you want to remove <b>${esc(name)} (ID #${fid})</b> from the faculty list?
         </p>
-        <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
-          This faculty has 0 allocated students and can be safely deleted.
-        </div>
+        ${count > 0 ? `
+          <div class="modal-note" style="border-left-color: var(--error); margin-top: 14px;">
+            ⚠️ <b>${count} student(s)</b> are currently allocated to this faculty. Deleting this faculty will unassign their seats and allow them to choose another guide.
+          </div>
+        ` : `
+          <div class="modal-note" style="border-left-color: var(--ok); margin-top: 14px;">
+            This faculty currently has 0 allocated students and will be cleanly removed.
+          </div>
+        `}
       `,
       confirmText: 'Delete Faculty',
       confirmBtnClass: 'btn-primary',

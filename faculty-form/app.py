@@ -815,15 +815,22 @@ def create_app(settings=None, engine=None, sheets_client=None):
             return err("invalid_data", "Valid faculty ID required.", 400)
 
         engine_ = get_engine()
-        from db import faculty
+        from db import attempts, faculty, faculty_student_selections, selections
         sheets = get_sheets()
 
         with engine_.begin() as conn:
             existing = conn.execute(select(faculty).where(faculty.c.id == fid)).mappings().first()
             if not existing:
                 return err("not_found", "Faculty not found.", 404)
-            if existing["selected_count"] > 0:
-                return err("has_students", f"Cannot delete {existing['name']}: {existing['selected_count']} students are allocated to them.", 400)
+
+            # If students had chosen this faculty, unassign them so they can choose another guide
+            sels = conn.execute(select(selections).where(selections.c.faculty_id == fid)).mappings().all()
+            for s in sels:
+                conn.execute(delete(selections).where(selections.c.seq_id == s["seq_id"]))
+                if s.get("email"):
+                    conn.execute(delete(attempts).where(attempts.c.email == s["email"].lower()))
+
+            conn.execute(delete(faculty_student_selections).where(faculty_student_selections.c.faculty_id == fid))
             conn.execute(delete(faculty).where(faculty.c.id == fid))
 
         invalidate_availability_cache()
@@ -834,7 +841,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             except Exception:
                 pass
 
-        return jsonify({"ok": True, "message": "Faculty removed from database."})
+        return jsonify({"ok": True, "message": f"Faculty {existing['name']} removed from database."})
 
     @app.get("/api/faculty/dashboard")
     def faculty_dashboard():
