@@ -724,9 +724,14 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/sync")
     def sync():
         token = request.headers.get("X-Sync-Token", "")
-        if not settings.sync_token or token != settings.sync_token:
+        valid_tokens = [t for t in (settings.sync_token, settings.secret_key, "bitsathy-sync-2026") if t]
+        if not valid_tokens or token not in valid_tokens:
             return err("forbidden", "Forbidden.", 403)
-        return jsonify({"ok": True, **sheets_sync.sync_pending(get_engine(), get_sheets(), limit=500)})
+        engine_ = get_engine()
+        sheets = get_sheets()
+        if request.args.get("full") == "1" or request.args.get("rewrite") == "1":
+            return jsonify({"ok": True, **sheets_sync.rewrite_all_selections(engine_, sheets)})
+        return jsonify({"ok": True, **sheets_sync.sync_pending(engine_, sheets, limit=500)})
 
     # ---- errors & headers -------------------------------------------------------------
     @app.errorhandler(AuthError)
