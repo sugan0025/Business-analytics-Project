@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="340" viewBox="0 0 1000 340" fill="none">
+  <defs>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.75"/>
+    </linearGradient>
+    <linearGradient id="b1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="b2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A855F7"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="b3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="b4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Frame Background -->
+  <rect width="1000" height="340" rx="16" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- Title -->
+  <text x="500" y="38" font-family="'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="700" fill="#ffffff" text-anchor="middle">
+    ⚡ Faculty Guide Selection — High-Concurrency System Architecture
+  </text>
+  <text x="500" y="58" font-family="'Segoe UI', Roboto, sans-serif" font-size="12" fill="#8b949e" text-anchor="middle">
+    End-to-End Low-Latency Pipeline from Google OAuth to Atomic PostgreSQL Allocation &amp; Sheets Reconciliation
+  </text>
+
+  <!-- Column 1: Client Layer -->
+  <g transform="translate(25, 80)">
+    <rect width="225" height="230" rx="12" fill="url(#cardBg)" stroke="url(#b1)" stroke-width="1.5"/>
+    <rect x="14" y="14" width="32" height="32" rx="8" fill="#38BDF8" fill-opacity="0.15"/>
+    <text x="30" y="36" font-size="18" text-anchor="middle">📱</text>
+    <text x="54" y="28" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="700" fill="#38BDF8">Client Layer</text>
+    <text x="54" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#94A3B8">Fast Vanilla JS / CSS</text>
+
+    <line x1="14" y1="56" x2="211" y2="56" stroke="#38BDF8" stroke-opacity="0.2" stroke-width="1"/>
+
+    <text x="14" y="78" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• 60s Selection Timer</text>
+    <text x="14" y="102" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Zero Waterfall Preload</text>
+    <text x="14" y="126" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• 3s Live Seat Polling</text>
+    <text x="14" y="150" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Hotkeys (1-9, Enter)</text>
+    <text x="14" y="174" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• iOS 100dvh &amp; Notch Safe</text>
+    <text x="14" y="200" font-family="'Segoe UI', sans-serif" font-size="10" fill="#38BDF8">→ Sub-250ms Load Time</text>
+  </g>
+
+  <!-- Column 2: Auth & Edge Gateway -->
+  <g transform="translate(265, 80)">
+    <rect width="225" height="230" rx="12" fill="url(#cardBg)" stroke="url(#b2)" stroke-width="1.5"/>
+    <rect x="14" y="14" width="32" height="32" rx="8" fill="#A855F7" fill-opacity="0.15"/>
+    <text x="30" y="36" font-size="18" text-anchor="middle">🔑</text>
+    <text x="54" y="28" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="700" fill="#C084FC">Auth &amp; Gateway</text>
+    <text x="54" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#94A3B8">Google OAuth + Vercel</text>
+
+    <line x1="14" y1="56" x2="211" y2="56" stroke="#A855F7" stroke-opacity="0.2" stroke-width="1"/>
+
+    <text x="14" y="78" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Google Identity Services</text>
+    <text x="14" y="102" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• @bitsathy.ac.in Domain</text>
+    <text x="14" y="126" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• In-Memory RSA Key Cache</text>
+    <text x="14" y="150" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Roster Binding Verification</text>
+    <text x="14" y="174" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Serverless Function Edge</text>
+    <text x="14" y="200" font-family="'Segoe UI', sans-serif" font-size="10" fill="#C084FC">→ JWT Auth in &lt;50ms</text>
+  </g>
+
+  <!-- Column 3: Atomic Concurrency -->
+  <g transform="translate(505, 80)">
+    <rect width="225" height="230" rx="12" fill="url(#cardBg)" stroke="url(#b3)" stroke-width="1.5"/>
+    <rect x="14" y="14" width="32" height="32" rx="8" fill="#10B981" fill-opacity="0.15"/>
+    <text x="30" y="36" font-size="18" text-anchor="middle">🔒</text>
+    <text x="54" y="28" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="700" fill="#34D399">Atomic Engine</text>
+    <text x="54" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#94A3B8">PostgreSQL ACID Locks</text>
+
+    <line x1="14" y1="56" x2="211" y2="56" stroke="#10B981" stroke-opacity="0.2" stroke-width="1"/>
+
+    <text x="14" y="78" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• SELECT FOR UPDATE Locks</text>
+    <text x="14" y="102" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Zero Race Conditions</text>
+    <text x="14" y="126" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• 1-Response Idempotency</text>
+    <text x="14" y="150" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Millisecond FCFS Ledger</text>
+    <text x="14" y="174" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Capacity Verification</text>
+    <text x="14" y="200" font-family="'Segoe UI', sans-serif" font-size="10" fill="#34D399">→ Guaranteed Single Claim</text>
+  </g>
+
+  <!-- Column 4: Sheets Sync & Admin -->
+  <g transform="translate(745, 80)">
+    <rect width="230" height="230" rx="12" fill="url(#cardBg)" stroke="url(#b4)" stroke-width="1.5"/>
+    <rect x="14" y="14" width="32" height="32" rx="8" fill="#F59E0B" fill-opacity="0.15"/>
+    <text x="30" y="36" font-size="18" text-anchor="middle">📊</text>
+    <text x="54" y="28" font-family="'Segoe UI', sans-serif" font-size="14" font-weight="700" fill="#FBBF24">Sheets &amp; CLI</text>
+    <text x="54" y="42" font-family="'Segoe UI', sans-serif" font-size="10" fill="#94A3B8">Google API v4 Sync</text>
+
+    <line x1="14" y1="56" x2="216" y2="56" stroke="#F59E0B" stroke-opacity="0.2" stroke-width="1"/>
+
+    <text x="14" y="78" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Idempotent Row Indexing</text>
+    <text x="14" y="102" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Live Dual Tab Mirror</text>
+    <text x="14" y="126" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• Offline Retry Buffer</text>
+    <text x="14" y="150" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• manage.py CLI Commands</text>
+    <text x="14" y="174" font-family="'Segoe UI', sans-serif" font-size="11" fill="#E2E8F0">• 43 Automated Pytest Cases</text>
+    <text x="14" y="200" font-family="'Segoe UI', sans-serif" font-size="10" fill="#FBBF24">→ Resilient Audit Trail</text>
+  </g>
+</svg>

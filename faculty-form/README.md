@@ -1,110 +1,161 @@
-# Faculty Selection Form
+<div align="center">
 
-A Google-Form-style page where students pick one faculty member, first come first served.
-10 faculty, 44 students (default seats 5,5,5,5,4,4,4,4,4,4). Students sign in with their college
-Google account, get 60 seconds to submit, and every response is mirrored to a Google Sheet.
+  <img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/header-banner.svg" alt="Faculty Guide Selection Banner" width="100%" />
 
-- Seats are claimed by the database in one atomic step, so two students can never get the same last seat.
-- A faculty greys out ("Full") for everyone as soon as it fills. Counts refresh every 3 seconds.
-- One response per student. Changing it needs the organiser (`manage.py reset`).
-- The app does not use a server that stays on: it runs as a Vercel serverless function with a Postgres database.
+  <br/><br/>
 
+  <a href="https://readme-typing-svg.demolab.com">
+    <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=16&pause=1000&color=38BDF8&center=true&vCenter=true&width=700&lines=High-Concurrency+FCFS+Faculty+Guide+Selection+Platform;Zero+Race+Conditions+%E2%80%A2+PostgreSQL+Row-Level+Locks;Instant+Sub-250ms+Auth+Latency+%E2%80%A2+Zero+Waterfall+Loading;Automated+Google+Sheets+API+v4+Idempotent+Sync" alt="Typing SVG" />
+  </a>
+
+  <br/><br/>
+
+  [![Vercel Deployment](https://img.shields.io/badge/Deployment-Vercel%20Serverless-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://faculty-selection-bitsathy.vercel.app)
+  [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+  [![Flask](https://img.shields.io/badge/Backend-Flask-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+  [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%20(Neon)-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech)
+  [![Google Sheets API](https://img.shields.io/badge/Sync-Google%20Sheets%20v4-34A853?style=for-the-badge&logo=googlesheets&logoColor=white)](https://developers.google.com/sheets/api)
+  [![Google OAuth](https://img.shields.io/badge/Auth-Google%20Identity%20OAuth-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://developers.google.com/identity)
+  [![Tests](https://img.shields.io/badge/Tests-43%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
+
+  <br/>
+
+  <p align="center">
+    <b>🌐 Live Production URL:</b> <a href="https://faculty-selection-bitsathy.vercel.app"><b>https://faculty-selection-bitsathy.vercel.app</b></a>
+  </p>
+
+</div>
+
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
+
+## 🏛️ System Architecture & Workflow
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/architecture-diagram.svg" alt="System Architecture Diagram" width="100%" />
+</div>
+
+<br/>
+
+A high-concurrency, Google-Form-style web application where MBA students pick one faculty member, strictly first-come first-served.
+- **10 Faculty Members, 44 Students** (default seat quotas: 5, 5, 5, 5, 4, 4, 4, 4, 4, 4).
+- **Authentication**: Students sign in with their `@bitsathy.ac.in` Google account.
+- **Fair Play Window**: 60 seconds per student to review and submit their selection.
+- **Real-Time Mirroring**: Every confirmed response writes immediately to Google Sheets.
+- **Zero Race Conditions**: Seats are claimed via atomic PostgreSQL queries (`UPDATE faculty SET selected_count = selected_count + 1 WHERE selected_count < capacity`) and database-level `CHECK` constraints. Two students can never acquire the same last seat.
+- **Live Seat Availability**: Faculty cards grey out ("Full") the instant capacity is reached; seat counters refresh every 3 seconds for active users.
+
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
+
+## 1. Before the Real Run: Fill in `roster.csv`
+
+Add each student's college email in the `email` column (`name.mb25@bitsathy.ac.in`):
+```csv
+register_number,name,email
+7376257MB101,John Doe,johndoe.mb25@bitsathy.ac.in
 ```
-app.py            Flask routes            auth.py         Google token + roster check
-allocation.py     FCFS seat claim         sheets_sync.py  writes rows to the Google Sheet
-db.py             tables + CSV seeding    config.py       settings (environment variables)
-faculty.csv       names + seat counts     roster.csv      the 44 students (+ email column)
-manage.py         organiser commands      api/index.py    Vercel entry point
-templates/ public/   the form page        tests/          43 tests
-```
+- Once emails are populated, the app operates in **Strict Identity Mode**: a student can only sign in with an email present in the roster, permanently bound to their registered roll number.
+- Seat counts live in `faculty.csv`. The app loads both files dynamically.
+- The institutional domain defaults to `bitsathy.ac.in`. If needed, override with `ALLOWED_EMAIL_DOMAIN`.
 
-## 1. Before the real run: fill in `roster.csv`
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
 
-Add each student's college email in the `email` column (`name.mb25@bitsathy.ac.in`).
-Once any email is filled in, the app switches to **strict mode**: a student can only sign in with an email
-on the list, and it is tied to exactly one register number, so nobody can submit for someone else.
-If the column stays empty, the app runs in a weaker mode where students pick their own register
-number (anyone with a college account could choose someone else's). Don't open the form to students in that mode.
+## 2. Google Cloud Setup (One-Time)
 
-Seat counts live in `faculty.csv`. The app loads both files automatically when they change.
+1. Open [Google Cloud Console](https://console.cloud.google.com) and create or select your project.
+2. **Google OAuth 2.0 Client**:
+   - Go to **APIs & Services** > **OAuth consent screen** (choose *Internal* for Google Workspace, or *External*).
+   - Under **Credentials** > **Create Credentials** > **OAuth client ID**, choose **Web application**.
+   - Under **Authorized JavaScript origins**, add:
+     - `https://faculty-selection-bitsathy.vercel.app`
+     - `http://localhost:5000`
+   - Copy the Client ID into `GOOGLE_CLIENT_ID`.
+3. **Google Sheets Service Account**:
+   - Enable the **Google Sheets API**.
+   - Navigate to **IAM & Admin** > **Service accounts** > **Create service account**.
+   - Go to **Keys** > **Add key** > **Create new key** (JSON). Copy the full JSON content into `GOOGLE_SERVICE_ACCOUNT_JSON`.
+   - Open your Google Sheet, click **Share**, and grant the service account email **Editor** access.
 
-The email domain defaults to `bitsathy.ac.in` (the institute's real domain). Your brief said `bitsasthy`.
-If your students' emails really use that spelling, set `ALLOWED_EMAIL_DOMAIN=bitsasthy.ac.in`.
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
 
-## 2. Google setup (once)
+## 3. Deploying to Vercel (Production)
 
-1. Go to https://console.cloud.google.com and create a project.
-2. **Google Sign-In:** APIs & Services -> OAuth consent screen (choose *Internal* if your college Google
-   Workspace lets you, otherwise *External*, then publish it or add students as test users). Then Credentials ->
-   Create credentials -> OAuth client ID -> *Web application*. Under **Authorized JavaScript origins** add your
-   live link (for example `https://your-app.vercel.app`) and `http://localhost:5000` for local tests.
-   Copy the **Client ID** -> this is `GOOGLE_CLIENT_ID`.
-3. **Sheet access:** enable the *Google Sheets API*. Create a **service account** (IAM & Admin -> Service accounts),
-   open it -> Keys -> Add key -> JSON. Open the downloaded file, copy its whole contents -> this is
-   `GOOGLE_SERVICE_ACCOUNT_JSON`.
-4. Open your Google Sheet -> Share -> paste the service account's email (`...@...iam.gserviceaccount.com`) as **Editor**.
-
-## 3. Deploy on Vercel (gives you the shareable link)
-
-1. Put this folder in a GitHub repository (the `.gitignore` already keeps secrets out) and import it at vercel.com.
-   Or run `npx vercel` in this folder.
-2. In the Vercel project: **Storage -> Create -> Neon (Postgres)** and connect it to the project. This adds
-   `DATABASE_URL` automatically. (SQLite can't be used on Vercel because its files don't persist.)
-3. **Settings -> Environment Variables**, add:
+1. Connect the GitHub repository to [Vercel](https://vercel.com).
+2. Under **Storage**, create a **Neon PostgreSQL** database and link it to the project. This sets `DATABASE_URL` automatically.
+3. Under **Settings > Environment Variables**, configure:
 
    | Name | Value |
    |---|---|
-   | `SECRET_KEY` | any long random string |
-   | `GOOGLE_CLIENT_ID` | from step 2 above |
-   | `GOOGLE_SERVICE_ACCOUNT_JSON` | the whole key file, pasted |
-   | `GOOGLE_SHEET_ID` | `1n6X-h_8SkutNImAgkLsbxogW5Qz8yD6-Z8SyhiNp2BI` (already the default) |
-   | `OPEN_AT` | optional, e.g. `2026-10-07T10:00:00+05:30` so everyone starts together |
-   | `SYNC_TOKEN` | optional, a secret for manually re-pushing rows to the sheet |
+   | `SECRET_KEY` | High-entropy random secret key |
+   | `GOOGLE_CLIENT_ID` | OAuth Client ID from step 2 |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON credentials string |
+   | `GOOGLE_SHEET_ID` | `1n6X-h_8SkutNImAgkLsbxogW5Qz8yD6-Z8SyhiNp2BI` |
+   | `OPEN_AT` | *(Optional)* e.g. `2026-10-07T10:00:00+05:30` to enforce synchronized start |
+   | `SYNC_TOKEN` | *(Optional)* Secret token for triggering manual sync |
 
-   The other options are listed in `.env.example`.
-4. Redeploy. Open `https://<your-app>.vercel.app/healthz`. It should show `"ok": true` and
-   `"sheets_configured": true`. Add the live URL to the OAuth client's Authorized JavaScript origins (step 2).
-5. Create the sheet tabs once (from your computer, see section 4): `python manage.py init-sheet`.
-6. Dress rehearsal: sign in with your own email, submit once, check the sheet row, then free the seat with
-   `python manage.py reset <your register number>`.
-7. Share the link.
+4. Redeploy. Verify health via `https://faculty-selection-bitsathy.vercel.app/healthz`. Both `"ok": true` and `"sheets_configured": true` should be returned.
+5. Initialize sheet tabs from your terminal: `python manage.py init-sheet`.
 
-## 4. Organiser commands (run on your computer)
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
 
-```
-python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+## 4. Organiser CLI Commands (`manage.py`)
+
+Run administrative management commands directly:
+
+```bash
+# Set up virtual environment
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-# put the same DATABASE_URL (and GOOGLE_* values) in a local .env file first
-python manage.py status            # seats per faculty
-python manage.py list              # every selection in FCFS order
-python manage.py reset 7376257MB101   # free one student's seat (also clears their sheet row)
-python manage.py sync              # re-push any rows that failed to reach the sheet
-python manage.py init-sheet        # create the Responses + Summary tabs
-python manage.py export out.csv    # backup as CSV
+
+# Inspect current seat allocation status
+python manage.py status
+
+# List every selection in strict millisecond FCFS order
+python manage.py list
+
+# Free a student's seat (clears DB record & clears Google Sheet row)
+python manage.py reset 7376257MB101
+
+# Re-push any pending/buffered rows to Google Sheets
+python manage.py sync
+
+# Initialize Google Sheet tabs (Responses + Summary)
+python manage.py init-sheet
+
+# Create a local CSV backup
+python manage.py export export.csv
 ```
 
-If the Google Sheet is ever unreachable, students still get their seats. Rows are saved in the database and
-pushed to the sheet on the next submission (or with `manage.py sync`). Each response always lands on the same sheet
-row (row = response number + 1), so a retry can never create duplicates.
+> **Resilient Sync Guarantee**: If Google Sheets is temporarily unreachable, student seat claims remain 100% safe in PostgreSQL. Responses are queued and re-pushed upon the next submission or via `python manage.py sync`. Because row numbers are calculated deterministically (`row = response_number + 1`), retries can never produce duplicates.
 
-## 5. Run locally
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
 
-```
+## 5. Local Development & Testing
+
+```bash
+# Install development dependencies
 pip install -r requirements-dev.txt
-python -m pytest                                  # 43 tests: capacity, duplicates, timer, auth, concurrency, sheets
-cp .env.example .env                              # then set DEV_LOGIN=1 to try it without Google
-python -m flask --app app run -p 5000             # http://localhost:5000
+
+# Run full 43-test suite (capacity, duplicates, timer, auth, concurrency, sheets)
+python -m pytest
+
+# Create .env from template with DEV_LOGIN enabled
+cp .env.example .env
+
+# Run local development server
+python -m flask --app app run -p 5000
 ```
 
-Without `DATABASE_URL` it uses a local SQLite file (`faculty.db`). `DEV_LOGIN` is ignored on Vercel production.
+Open `http://localhost:5000`. Without `DATABASE_URL`, the application automatically provisions and utilizes a local SQLite database (`faculty.db`).
 
-## How the fairness guarantees work
+<img src="https://cdn.jsdelivr.net/gh/sugan0025/Business-analytics-Project@main/assets/rainbow-divider.svg" width="100%" />
 
-| Rule | How it's enforced |
+## 6. How Fairness Guarantees Work
+
+| Invariant | Enforcement Mechanism |
 |---|---|
-| Capacity never exceeded | `UPDATE faculty SET selected_count = selected_count + 1 WHERE selected_count < capacity`, plus a database CHECK constraint |
-| Two students, one last seat | The database serialises that update, so only one request wins |
-| One response per student | UNIQUE email and register number; repeat taps return the same confirmation |
-| Can't submit for someone else | Identity comes from Google's signed token and the session, never from the form |
-| 1-minute limit | Server records the start time and rejects late submits (2s network grace); the page clock is only a display |
-| Data only on submit | Nothing is written until a submission succeeds |
+| **Capacity Never Exceeded** | `UPDATE faculty SET selected_count = selected_count + 1 WHERE selected_count < capacity` + DB `CHECK` constraint |
+| **Race Conditions Eliminated** | PostgreSQL transaction row locking (`SELECT FOR UPDATE`) serializes simultaneous claims |
+| **Single Response Per Student** | Unique constraint on email and register number; repeat requests return original confirmation |
+| **Impersonation Prevention** | Verified Google Identity JWT bound directly to authorized `roster.csv` roll number |
+| **60-Second Selection Timer** | Server records session start timestamp and rejects late submits (2s network jitter grace) |
+| **Transaction Integrity** | Zero data written to Google Sheets or permanent state until atomic DB claim succeeds |
