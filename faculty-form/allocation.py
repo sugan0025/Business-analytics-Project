@@ -216,10 +216,17 @@ def reset_student(engine, key):
         row = conn.execute(
             select(selections).where((selections.c.register_no == key.upper()) | (selections.c.email == key.lower()))
         ).mappings().first()
+
+        stu = conn.execute(
+            select(students).where((students.c.register_no == key.upper()) | (students.c.email == key.lower()))
+        ).mappings().first()
+        target_email = row["email"] if row else (stu["email"] if stu else key.lower())
+        if target_email:
+            conn.execute(delete(attempts).where(attempts.c.email == target_email.lower()))
+
         if row is None:
             return None
         conn.execute(delete(selections).where(selections.c.seq_id == row["seq_id"]))
         conn.execute(update(faculty).where(faculty.c.id == row["faculty_id"], faculty.c.selected_count > 0)
                      .values(selected_count=faculty.c.selected_count - 1))
-        conn.execute(delete(attempts).where(attempts.c.email == row["email"]))
         return dict(row)

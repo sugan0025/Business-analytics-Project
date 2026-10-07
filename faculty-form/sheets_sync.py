@@ -141,6 +141,11 @@ class GoogleSheetsClient:
             {"range": f"'{self.faculty_tab}'!A1:F1", "values": [FACULTY_HEADERS]},
             {"range": f"'{self.test_tab}'!A1:F1", "values": [TEST_HEADERS]},
         ]})
+        self.update_summary_tab(faculty_rows)
+
+    def update_summary_tab(self, faculty_rows: List[dict]):
+        self.ensure_tab(self.summary_tab, ["Faculty", "Capacity", "Selected", "Remaining"])
+        self.clear_range(f"'{self.summary_tab}'!A1:D30")
         summary = [["Faculty", "Capacity", "Selected", "Remaining"]]
         for i, f in enumerate(faculty_rows, start=2):
             summary.append([f["name"], f["capacity"],
@@ -269,7 +274,15 @@ def rewrite_all_selections(engine, client) -> dict:
                 if f["selected_count"] != actual_cnt:
                     conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=actual_cnt))
 
-        return {"ok": True, "rewritten": len(rows)}
+        # Always update Google Sheet Summary tab with active non-director faculties
+        with engine.connect() as conn:
+            active_facs = conn.execute(
+                select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
+            ).mappings().all()
+            active_fac_dicts = [dict(f) for f in active_facs]
+            client.update_summary_tab(active_fac_dicts)
+
+        return {"ok": True, "rewritten": len(rows), "summary_updated": len(active_fac_dicts)}
     except Exception as exc:
         log.exception("Error in rewrite_all_selections")
         return {"ok": False, "error": str(exc)}
@@ -278,18 +291,27 @@ def rewrite_all_selections(engine, client) -> dict:
 def reconcile_sheet_and_db(engine, client) -> dict:
     """Synchronize Google Sheet and database:
     1. Resequence DB selections 1..N with no gaps.
-    2. Enforce correct capacities: 5 for IDs (2, 3, 4), and 4 for IDs (5, 6, 7, 8, 9, 10).
-    3. Update selected_count to match DB selections accurately.
-    4. Sync rows to Google Sheet cleanly.
+    2. Recalculate selected_count for all faculties.
+    3. Enforce quotas safely: Suganesh (4), Sathish (4), Adhinarayanan (4), Saraswathi (2), Rest (5).
+    4. Sync rows and Summary tab to Google Sheet cleanly.
     """
     from db import faculty, resequence_selections, selections
     resequence_selections(engine)
 
-    with engine.begin() as conn:
-        # Enforce 44 total capacity: 5 for each faculty, 4 for Suganesh Sir (id=10)
-        conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 4, 5, 6, 7, 8, 9])).values(capacity=5))
-        conn.execute(update(faculty).where(faculty.c.id == 10).values(capacity=4))
+    target_caps = {
+        2: 4,   # Dr Adhinarayanan B
+        3: 4,   # Dr Satheesh Kumar T
+        4: 5,   # Prof. Senthil Kumar N
+        5: 5,   # Prof. Nandhini B
+        6: 5,   # Prof. Mageswaran J
+        7: 5,   # Prof. Dhanabalu S N
+        8: 5,   # Prof. Saranya S
+        9: 5,   # Prof. Aishwariya M R
+        10: 4,  # Prof. Suganesh S
+        11: 2,  # Dr Saraswathi C
+    }
 
+    with engine.begin() as conn:
         from sqlalchemy import func
         fac_counts = conn.execute(
             select(selections.c.faculty_id, func.count().label("cnt"))
@@ -300,6 +322,9 @@ def reconcile_sheet_and_db(engine, client) -> dict:
         for f in fac_rows:
             cnt = fac_cnt_map.get(f["id"], 0)
             conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=cnt))
+            if f["id"] in target_caps:
+                target = max(target_caps[f["id"]], cnt)
+                conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(capacity=target))
 
     sheet_res = {}
     if client:

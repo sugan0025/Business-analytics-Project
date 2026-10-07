@@ -772,8 +772,21 @@ def create_app(settings=None, engine=None, sheets_client=None):
             return err("forbidden", "Forbidden.", 403)
         engine_ = get_engine()
         sheets = get_sheets()
-        if request.args.get("full") == "1" or request.args.get("rewrite") == "1":
-            return jsonify({"ok": True, **sheets_sync.rewrite_all_selections(engine_, sheets)})
+
+        reset_target = request.args.get("reset")
+        reset_result = None
+        if reset_target:
+            reset_result = allocation.reset_student(engine_, reset_target)
+            invalidate_availability_cache()
+
+        if request.args.get("reconcile") == "1":
+            invalidate_availability_cache()
+            return jsonify({"ok": True, "reset": reset_result, **sheets_sync.reconcile_sheet_and_db(engine_, sheets)})
+
+        if request.args.get("full") == "1" or request.args.get("rewrite") == "1" or reset_target:
+            invalidate_availability_cache()
+            return jsonify({"ok": True, "reset": reset_result, **sheets_sync.rewrite_all_selections(engine_, sheets)})
+
         return jsonify({"ok": True, **sheets_sync.sync_pending(engine_, sheets, limit=500)})
 
     # ---- errors & headers -------------------------------------------------------------
