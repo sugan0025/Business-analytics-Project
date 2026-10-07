@@ -176,12 +176,14 @@ def init_schema(engine):
     except Exception:
         pass
 
-    # Set default 44 capacity: Suganesh 4, Sathish 4, Adhinarayan 4, Saraswathi 2, rest 5
+    # Set target capacity safely: cap cannot be less than current selected_count
     try:
         with engine.begin() as conn:
-            conn.execute(update(faculty).where(faculty.c.id.in_([2, 3, 10])).values(capacity=4))
-            conn.execute(update(faculty).where(faculty.c.id == 11).values(capacity=2))
-            conn.execute(update(faculty).where(faculty.c.id.in_([4, 5, 6, 7, 8, 9])).values(capacity=5))
+            for fid, cap in [(2, 4), (3, 4), (10, 4), (11, 2), (4, 5), (5, 5), (6, 5), (7, 5), (8, 5), (9, 5)]:
+                row = conn.execute(select(faculty.c.selected_count).where(faculty.c.id == fid)).first()
+                if row:
+                    target = max(cap, row[0])
+                    conn.execute(update(faculty).where(faculty.c.id == fid).values(capacity=target))
     except Exception:
         pass
 
@@ -278,7 +280,8 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             if existing is None:
                 conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email, specialization=spec))
             else:
-                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=cap, email=fac_email, specialization=spec))
+                target_cap = max(cap, existing["selected_count"])
+                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email, specialization=spec))
         for r in stu_rows:
             reg = r["register_no"].upper()
             email = r.get("email", "").lower() or None
