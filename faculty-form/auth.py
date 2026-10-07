@@ -1,9 +1,9 @@
-"""Google Sign-In verification and roster matching."""
+"""Google Sign-In verification, faculty authentication, and student roster matching."""
 import re
 
 from sqlalchemy import func, select
 
-from db import students
+from db import faculty, students
 
 
 class AuthError(Exception):
@@ -15,6 +15,17 @@ class AuthError(Exception):
 
 
 _google_request = None
+
+DEFAULT_FACULTY_MAP = {
+    "murugappans@bitsathy.ac.in": 1,
+    "adhinarayananb@bitsathy.ac.in": 2,
+    "senthilkumar@bitsathy.ac.in": 4,
+    "nandhinib@bitsathy.ac.in": 5,
+    "mageswaran@bitsathy.ac.in": 6,
+    "dhanabalusn@bitsathy.ac.in": 7,
+    "aishwariya@bitsathy.ac.in": 9,
+    "suganeshs@bitsathy.ac.in": 10,
+}
 
 
 def _get_google_request():
@@ -36,12 +47,35 @@ def verify_google_token(credential: str, client_id: str) -> dict:
         raise AuthError("invalid_token", "Sign-in failed. Please try again.", 401)
 
 
+def get_faculty_info(engine, email: str):
+    """Return faculty dict for an email, or None."""
+    email = (email or "").strip().lower()
+    try:
+        with engine.connect() as conn:
+            # 1. Match email column in faculty table
+            row = conn.execute(select(faculty).where(func.lower(faculty.c.email) == email)).mappings().first()
+            if row is not None:
+                return dict(row)
+            # 2. Match DEFAULT_FACULTY_MAP fallback
+            fid = DEFAULT_FACULTY_MAP.get(email)
+            if fid is not None:
+                row = conn.execute(select(faculty).where(faculty.c.id == fid)).mappings().first()
+                if row is not None:
+                    return dict(row)
+    except Exception:
+        pass
+    return None
+
+
 def email_allowed(email: str, settings) -> bool:
-    """college pattern: <name>.mb25@<domain>"""
+    """College pattern: faculty or student <name>.mb25@<domain>"""
     email = (email or "").strip().lower()
     local, _, domain = email.partition("@")
     if domain != settings.email_domain:
         return False
+    # Known faculty or college staff without student suffix
+    if email in DEFAULT_FACULTY_MAP or not local.endswith(settings.email_local_suffix):
+        return True
     suffix = settings.email_local_suffix
     if not local.endswith(suffix) or len(local) <= len(suffix):
         return False
@@ -58,19 +92,60 @@ def roster_mode(engine) -> str:
 def identify(engine, email: str, display_name: str, settings) -> dict:
     """Turn a verified email into a session identity, or raise AuthError."""
     email = (email or "").strip().lower()
-    if not email_allowed(email, settings):
+    local, _, domain = email.partition("@")
+    if domain != settings.email_domain:
         raise AuthError(
             "wrong_domain",
-            f"Please sign in with your college email (name{settings.email_local_suffix}@{settings.email_domain}).",
+            f"Please sign in with your college email (@{settings.email_domain}).",
         )
+
+    # 1. Faculty Identification
+    fac = get_faculty_info(engine, email)
+    if fac is not None:
+        return {
+            "role": "faculty",
+            "email": email,
+            "name": fac["name"],
+            "faculty_id": fac["id"],
+            "capacity": fac["capacity"],
+            "register_no": None,
+            "mode": "faculty",
+        }
+
+    # If college account is staff/faculty whose email is not yet bound to a specific faculty id
+    if not local.endswith(settings.email_local_suffix):
+        clean_name = display_name or local.replace(".", " ").title()
+        return {
+            "role": "faculty",
+            "email": email,
+            "name": clean_name,
+            "faculty_id": None,
+            "capacity": 0,
+            "register_no": None,
+            "mode": "faculty",
+        }
+
+    # 2. Student Identification
     with engine.connect() as conn:
         row = conn.execute(select(students).where(students.c.email == email)).mappings().first()
     if row is not None:
-        return {"email": email, "name": row["name"], "register_no": row["register_no"], "mode": "strict"}
+        return {
+            "role": "student",
+            "email": email,
+            "name": row["name"],
+            "register_no": row["register_no"],
+            "mode": "strict",
+        }
     mode = roster_mode(engine)
     if mode == "strict":
         raise AuthError("not_on_roster", "This email is not on the class list. Contact your coordinator.")
-    return {"email": email, "name": display_name or email.split("@")[0], "register_no": None, "mode": mode}
+    return {
+        "role": "student",
+        "email": email,
+        "name": display_name or email.split("@")[0],
+        "register_no": None,
+        "mode": mode,
+    }
 
 
 def identity_from_google(engine, credential: str, settings) -> dict:

@@ -20,6 +20,7 @@ faculty = Table(
     Column("name", String(200), nullable=False),
     Column("capacity", Integer, nullable=False),
     Column("selected_count", Integer, nullable=False, server_default="0"),
+    Column("email", String(200), nullable=True),
     CheckConstraint("selected_count >= 0", name="ck_selected_nonneg"),
     CheckConstraint("selected_count <= capacity", name="ck_selected_le_capacity"),
 )
@@ -46,6 +47,33 @@ selections = Table(
     Column("email", String(200), nullable=False, unique=True),
     Column("student_name", String(200), nullable=False),
     Column("faculty_id", Integer, ForeignKey("faculty.id"), nullable=False),
+    Column("created_ms", BigInteger, nullable=False),
+    Column("synced", Integer, nullable=False, server_default="0"),
+    Column("sync_error", Text, nullable=True),
+    sqlite_autoincrement=True,
+)
+
+faculty_student_selections = Table(
+    "faculty_student_selections", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("faculty_id", Integer, ForeignKey("faculty.id"), nullable=False),
+    Column("faculty_email", String(200), nullable=False),
+    Column("faculty_name", String(200), nullable=False),
+    Column("student_register_no", String(40), nullable=False),
+    Column("student_name", String(200), nullable=False),
+    Column("created_ms", BigInteger, nullable=False),
+    Column("synced", Integer, nullable=False, server_default="0"),
+    Column("sync_error", Text, nullable=True),
+    sqlite_autoincrement=True,
+)
+
+test_selections = Table(
+    "test_selections", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("tester_email", String(200), nullable=False),
+    Column("tester_name", String(200), nullable=False),
+    Column("faculty_id", Integer, ForeignKey("faculty.id"), nullable=False),
+    Column("faculty_name", String(200), nullable=False),
     Column("created_ms", BigInteger, nullable=False),
     Column("synced", Integer, nullable=False, server_default="0"),
     Column("sync_error", Text, nullable=True),
@@ -86,6 +114,13 @@ def init_schema(engine):
     except (OperationalError, ProgrammingError, IntegrityError):
         # Two cold starts racing to create tables: the second just retries.
         metadata.create_all(engine)
+
+    # Migrate email column on faculty table if not present
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE faculty ADD COLUMN email VARCHAR(200)"))
+    except Exception:
+        pass
 
 
 # ---- seeding from the CSV config files ------------------------------------
@@ -130,14 +165,15 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
     with engine.begin() as conn:
         for r in fac_rows:
             fid, cap = int(r["id"]), int(r["capacity"])
+            fac_email = r.get("email", "").strip().lower() or None
             existing = conn.execute(select(faculty).where(faculty.c.id == fid)).mappings().first()
             if existing is None:
-                conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0))
+                conn.execute(insert(faculty).values(id=fid, name=r["name"], capacity=cap, selected_count=0, email=fac_email))
             else:
                 if cap < existing["selected_count"]:
                     raise ValueError(f"Capacity for {r['name']} ({cap}) is below seats already taken "
                                      f"({existing['selected_count']})")
-                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=cap))
+                conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=cap, email=fac_email))
         for r in stu_rows:
             reg = r["register_no"].upper()
             email = r.get("email", "").lower() or None

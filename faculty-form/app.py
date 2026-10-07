@@ -7,7 +7,7 @@ import time
 from datetime import timedelta
 
 from flask import Flask, jsonify, render_template, request, session
-from sqlalchemy import select, text
+from sqlalchemy import func, insert, select, text, update
 
 import allocation
 import auth
@@ -133,6 +133,70 @@ def create_app(settings=None, engine=None, sheets_client=None):
         with engine_or_conn.connect() as conn:
             return _get(conn)
 
+    def get_faculty_dashboard_data(engine_, ident):
+        from db import faculty, faculty_student_selections, selections, students
+        fac_id = ident.get("faculty_id")
+        with engine_.connect() as conn:
+            fac_rec = None
+            if fac_id:
+                fac_rec = conn.execute(select(faculty).where(faculty.c.id == fac_id)).mappings().first()
+            if not fac_rec and ident.get("email"):
+                fac_rec = conn.execute(select(faculty).where(func.lower(faculty.c.email) == ident["email"].lower())).mappings().first()
+
+            students_selected = []
+            if fac_rec:
+                sel_rows = conn.execute(
+                    select(selections).where(selections.c.faculty_id == fac_rec["id"]).order_by(selections.c.created_ms)
+                ).mappings().all()
+                students_selected = [
+                    {
+                        "seq": r["seq_id"],
+                        "register_no": r["register_no"],
+                        "name": r["student_name"],
+                        "email": r["email"],
+                        "time": config.fmt_ist(r["created_ms"]),
+                    }
+                    for r in sel_rows
+                ]
+
+            stu_rows = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
+            all_students = [
+                {"register_no": s["register_no"], "name": s["name"], "email": s["email"]}
+                for s in stu_rows
+            ]
+
+            fac_picks = []
+            if fac_rec:
+                pick_rows = conn.execute(
+                    select(faculty_student_selections)
+                    .where(faculty_student_selections.c.faculty_id == fac_rec["id"])
+                    .order_by(faculty_student_selections.c.created_ms)
+                ).mappings().all()
+                fac_picks = [
+                    {
+                        "id": p["id"],
+                        "student_register_no": p["student_register_no"],
+                        "student_name": p["student_name"],
+                        "time": config.fmt_ist(p["created_ms"]),
+                    }
+                    for p in pick_rows
+                ]
+
+            fac_info = {
+                "id": fac_rec["id"] if fac_rec else None,
+                "name": fac_rec["name"] if fac_rec else ident["name"],
+                "capacity": fac_rec["capacity"] if fac_rec else 0,
+                "selected_count": len(students_selected) if fac_rec else 0,
+                "remaining": (fac_rec["capacity"] - len(students_selected)) if fac_rec else 0,
+                "email": ident["email"],
+            }
+            return {
+                "faculty": fac_info,
+                "students_selected": students_selected,
+                "all_students": all_students,
+                "faculty_selections": fac_picks,
+            }
+
     def get_initial_state(include_attempt=False):
         t = now()
         is_open, reason, opens = config.form_state(settings, t)
@@ -156,16 +220,23 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if not ident:
             return state_data
 
+        is_fac = ident.get("role") == "faculty"
         state_data.update(
             signed_in=True,
+            role="faculty" if is_fac else "student",
             email=ident["email"],
             name=ident["name"],
-            register_no=ident["register_no"],
+            register_no=ident.get("register_no"),
             mode=ident.get("mode", "strict"),
             selection=None,
         )
+
+        engine_ = get_engine()
+        if is_fac:
+            state_data["faculty_dashboard"] = get_faculty_dashboard_data(engine_, ident)
+            return state_data
+
         try:
-            engine_ = get_engine()
             with engine_.connect() as conn:
                 existing = allocation.get_selection(conn, email=ident["email"])
                 if existing:
@@ -247,7 +318,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
         session.clear()
         return jsonify({"ok": True})
 
-    # ---- state ------------------------------------------------------------------------
+    # ---- state & dashboard ------------------------------------------------------------
     @app.get("/api/me")
     def me():
         t = now()
@@ -258,15 +329,132 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if not ident:
             return jsonify(out)
         engine_ = get_engine()
+        is_fac = ident.get("role") == "faculty"
+        out.update(signed_in=True, role="faculty" if is_fac else "student", email=ident["email"],
+                   name=ident["name"], register_no=ident.get("register_no"), mode=ident.get("mode", "strict"),
+                   selection=None)
+        if is_fac:
+            out["faculty_dashboard"] = get_faculty_dashboard_data(engine_, ident)
+            return jsonify(out)
+
         with engine_.connect() as conn:
             existing = allocation.get_selection(conn, email=ident["email"])
-        out.update(signed_in=True, email=ident["email"], name=ident["name"],
-                   register_no=ident["register_no"], mode=ident["mode"], selection=None)
         if existing:
             out["selection"] = sel_json(allocation.selection_view(existing))
-        elif ident["register_no"] is None:
+        elif ident.get("register_no") is None:
             out["roster"] = free_roster(engine_)
         return jsonify(out)
+
+    @app.get("/api/faculty/dashboard")
+    def faculty_dashboard():
+        ident = current_identity()
+        if ident.get("role") != "faculty":
+            return err("forbidden", "Faculty access required.", 403)
+        data = get_faculty_dashboard_data(get_engine(), ident)
+        return jsonify({"ok": True, **data})
+
+    @app.post("/api/faculty/select-student")
+    def faculty_select_student():
+        ident = current_identity()
+        if ident.get("role") != "faculty":
+            return err("forbidden", "Faculty access required.", 403)
+        data = body_json()
+        reg_no = str(data.get("register_no") or "").strip().upper()
+        if not reg_no:
+            return err("invalid_student", "Please choose a student.", 400)
+
+        engine_ = get_engine()
+        from db import faculty_student_selections, students
+        with engine_.connect() as conn:
+            stu = conn.execute(select(students).where(students.c.register_no == reg_no)).mappings().first()
+            if not stu:
+                return err("not_found", "Student not found in class roster.", 404)
+            already = conn.execute(
+                select(faculty_student_selections)
+                .where(faculty_student_selections.c.faculty_email == ident["email"])
+                .where(faculty_student_selections.c.student_register_no == reg_no)
+            ).first()
+            if already:
+                return err("already_selected", "You have already selected this student.", 400)
+
+        t = now()
+        with engine_.begin() as conn:
+            conn.execute(
+                insert(faculty_student_selections).values(
+                    faculty_id=ident.get("faculty_id") or 0,
+                    faculty_email=ident["email"],
+                    faculty_name=ident["name"],
+                    student_register_no=reg_no,
+                    student_name=stu["name"],
+                    created_ms=t,
+                    synced=0
+                )
+            )
+        trigger_sheet_sync(engine_, get_sheets(), background=True)
+        data_dash = get_faculty_dashboard_data(engine_, ident)
+        return jsonify({"ok": True, "faculty_selections": data_dash["faculty_selections"]})
+
+    @app.post("/api/faculty/delete-student-selection")
+    def faculty_delete_student_selection():
+        ident = current_identity()
+        if ident.get("role") != "faculty":
+            return err("forbidden", "Faculty access required.", 403)
+        data = body_json()
+        entry_id = data.get("id")
+        from db import faculty_student_selections
+        engine_ = get_engine()
+        with engine_.begin() as conn:
+            conn.execute(
+                faculty_student_selections.delete()
+                .where(faculty_student_selections.c.id == entry_id)
+                .where(faculty_student_selections.c.faculty_email == ident["email"])
+            )
+        data_dash = get_faculty_dashboard_data(engine_, ident)
+        return jsonify({"ok": True, "faculty_selections": data_dash["faculty_selections"]})
+
+    @app.post("/api/faculty/test-submit")
+    def faculty_test_submit():
+        ident = current_identity()
+        if ident.get("role") != "faculty":
+            return err("forbidden", "Faculty access required.", 403)
+        data = body_json()
+        fac_id = int(data.get("faculty_id", 0))
+        engine_ = get_engine()
+        from db import faculty, test_selections
+        with engine_.connect() as conn:
+            target_fac = conn.execute(select(faculty).where(faculty.c.id == fac_id)).mappings().first()
+            if not target_fac:
+                return err("invalid_faculty", "Faculty choice not found.", 400)
+
+        t = now()
+        new_id = 0
+        with engine_.begin() as conn:
+            res = conn.execute(
+                insert(test_selections).values(
+                    tester_email=ident["email"],
+                    tester_name=ident["name"],
+                    faculty_id=fac_id,
+                    faculty_name=target_fac["name"],
+                    created_ms=t,
+                    synced=0
+                )
+            )
+            new_id = res.inserted_primary_key[0] if res.inserted_primary_key else int(t % 10000)
+
+        trigger_sheet_sync(engine_, get_sheets(), background=True)
+        return jsonify({
+            "ok": True,
+            "test": True,
+            "selection": {
+                "seq": f"TEST-{new_id}",
+                "faculty_id": fac_id,
+                "faculty": target_fac["name"],
+                "name": f"{ident['name']} (Test Simulation)",
+                "register_no": "FACULTY-SIM",
+                "email": ident["email"],
+                "time": config.fmt_ist(t)
+            }
+        })
 
     @app.get("/api/availability")
     def availability():
@@ -301,7 +489,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     # ---- submit -----------------------------------------------------------------------
     @app.post("/api/submit")
     def submit():
-        ident = current_identity()          # identity comes from the session, never from the request body
+        ident = current_identity()
         data = body_json()
         engine_ = get_engine()
         t = now()
@@ -312,7 +500,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             faculty_id = int(data.get("faculty_id"))
         except (TypeError, ValueError):
             return err("invalid_faculty", allocation.MESSAGES["invalid_faculty"], 400)
-        if ident["register_no"] is None:                     # pattern mode: student names their register no.
+        if ident["register_no"] is None:
             ident["register_no"] = str(data.get("register_no") or "").strip().upper()
             if not ident["register_no"]:
                 return err("invalid_student", "Please select your register number.", 400)
@@ -326,10 +514,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 extra["faculty"] = get_cached_availability(engine_, max_age=0.0)[0]
             return err(res.code, res.message, STATUS_FOR_CODE.get(res.code, 400), **extra)
 
-        # Invalidate cache so other students see the updated seat count immediately
         invalidate_availability_cache()
-
-        # Seat is committed. Mirror to the sheet asynchronously; a failure here never undoes the seat.
         trigger_sheet_sync(engine_, get_sheets(), background=True)
         return jsonify({"ok": True, "already": res.already, "selection": sel_json(res.selection)})
 
