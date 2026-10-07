@@ -508,9 +508,16 @@
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save Seat Capacities';
         if (!r.ok) return toast(r.data.message || 'Failed to update capacities.');
-        toast('Seat capacities updated dynamically!');
+        toast('Seat capacities updated dynamically & synced to Google Sheets!');
         me.master_overview = r.data.master_overview;
         if (r.data.faculty) faculty = r.data.faculty;
+        if (r.data.faculties) {
+          dbFacultiesCache = r.data.faculties;
+          const fCnt = $('#dbFacultyBadgeCount');
+          if (fCnt) fCnt.textContent = dbFacultiesCache.length;
+        } else {
+          dbFacultiesCache = null;
+        }
         if (onRefresh) onRefresh();
       });
     }
@@ -693,7 +700,10 @@
     const tSeats = $('#tabDirectorSeats');
     if (tSeats) tSeats.addEventListener('click', () => showDirectorDashboard('seats'));
     const tDatabase = $('#tabDirectorDatabase');
-    if (tDatabase) tDatabase.addEventListener('click', () => showDirectorDashboard('database'));
+    if (tDatabase) tDatabase.addEventListener('click', () => {
+      dbFacultiesCache = null;
+      showDirectorDashboard('database');
+    });
     const tStudents = $('#tabDirectorMyStudents');
     if (tStudents) tStudents.addEventListener('click', () => showDirectorDashboard('my_students'));
     const mySubBtn = $('#tabDirectorMySubmission');
@@ -831,6 +841,7 @@
         if (currentDbSubTab !== 'students') {
           currentDbSubTab = 'students';
           dbSearchQuery = '';
+          dbStudentsCache = null;
           renderDatabaseManagementTab(container);
         }
       });
@@ -841,6 +852,7 @@
         if (currentDbSubTab !== 'faculties') {
           currentDbSubTab = 'faculties';
           dbSearchQuery = '';
+          dbFacultiesCache = null;
           renderDatabaseManagementTab(container);
         }
       });
@@ -949,7 +961,7 @@
                 <th>Student Name</th>
                 <th>Email ID</th>
                 <th>Guide Allocation Status</th>
-                <th style="width: 90px; text-align: center;">Actions</th>
+                <th style="width: 125px; text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -968,12 +980,16 @@
                       <span class="badge-pending">⏳ Pending Choice</span>
                     `}
                   </td>
-                  <td style="text-align: center; white-space: nowrap;">
-                    <button class="icon-btn edit-student-btn" data-reg="${esc(s.register_no)}" title="Edit Student">✏️</button>
-                    ${s.allocation ? `
-                      <button class="icon-btn reset-student-btn" data-reg="${esc(s.register_no)}" title="Reset Guide Choice (Keep on roster)">🔄</button>
-                    ` : ''}
-                    <button class="icon-btn icon-btn-delete delete-student-btn" data-reg="${esc(s.register_no)}" title="Manage / Delete Student">🗑️</button>
+                  <td style="text-align: center; vertical-align: middle;">
+                    <div class="action-btn-group">
+                      <button class="icon-btn edit-student-btn" data-reg="${esc(s.register_no)}" title="Edit Student">✏️</button>
+                      ${s.allocation ? `
+                        <button class="icon-btn reset-student-btn" data-reg="${esc(s.register_no)}" title="Reset Guide Choice (Keep on roster)">🔄</button>
+                      ` : `
+                        <span class="icon-btn-placeholder" aria-hidden="true"></span>
+                      `}
+                      <button class="icon-btn icon-btn-delete delete-student-btn" data-reg="${esc(s.register_no)}" title="Manage / Delete Student">🗑️</button>
+                    </div>
                   </td>
                 </tr>
               `).join('')}
@@ -1040,7 +1056,7 @@
                 <th>Domain / Specialization</th>
                 <th style="width: 90px; text-align: center;">Capacity</th>
                 <th style="width: 130px; text-align: center;">Allocated / Left</th>
-                <th style="width: 90px; text-align: center;">Actions</th>
+                <th style="width: 100px; text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1056,9 +1072,11 @@
                       ${f.selected_count} / ${f.remaining} left
                     </span>
                   </td>
-                  <td style="text-align: center; white-space: nowrap;">
-                    <button class="icon-btn edit-faculty-btn" data-fid="${f.id}" title="Edit Faculty">✏️</button>
-                    <button class="icon-btn icon-btn-delete delete-faculty-btn" data-fid="${f.id}" data-name="${esc(f.name)}" data-count="${f.selected_count}" title="Delete Faculty">🗑️</button>
+                  <td style="text-align: center; vertical-align: middle;">
+                    <div class="action-btn-group-fac">
+                      <button class="icon-btn edit-faculty-btn" data-fid="${f.id}" title="Edit Faculty">✏️</button>
+                      <button class="icon-btn icon-btn-delete delete-faculty-btn" data-fid="${f.id}" data-name="${esc(f.name)}" data-count="${f.selected_count}" title="Delete Faculty">🗑️</button>
+                    </div>
                   </td>
                 </tr>
               `).join('')}

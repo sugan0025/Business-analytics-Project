@@ -488,11 +488,44 @@ def create_app(settings=None, engine=None, sheets_client=None):
         invalidate_availability_cache()
         overview = get_master_overview_data(engine_)
         avail, _ = get_cached_availability(engine_, max_age=0.0)
+
+        # Sync updated capacities to Google Sheets Summary tab
+        sheets = get_sheets()
+        if sheets:
+            try:
+                with engine_.connect() as conn:
+                    active_facs = conn.execute(
+                        select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
+                    ).mappings().all()
+                    sheets.update_summary_tab([dict(f) for f in active_facs])
+            except Exception:
+                log.exception("Error syncing summary tab to Google Sheets on capacity update")
+
+        # Return updated faculties for the Database tab
+        from db import FACULTY_SPECIALIZATIONS
+        with engine_.connect() as conn:
+            fac_rows = conn.execute(
+                select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
+            ).mappings().all()
+        db_faculties = []
+        for f in fac_rows:
+            spec = f.get("specialization") or FACULTY_SPECIALIZATIONS.get(f["id"], "")
+            db_faculties.append({
+                "id": f["id"],
+                "name": f["name"],
+                "email": f.get("email") or "",
+                "specialization": spec,
+                "capacity": f["capacity"],
+                "selected_count": f["selected_count"],
+                "remaining": max(0, f["capacity"] - f["selected_count"]),
+            })
+
         return jsonify({
             "ok": True,
             "message": "Seat capacities updated dynamically.",
             "master_overview": overview,
             "faculty": avail,
+            "faculties": db_faculties,
         })
 
     @app.post("/api/admin/reset-user")
