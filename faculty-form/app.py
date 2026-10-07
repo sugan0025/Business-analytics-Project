@@ -747,35 +747,22 @@ def create_app(settings=None, engine=None, sheets_client=None):
             return err(res.code, res.message, STATUS_FOR_CODE.get(res.code, 400), **extra)
 
         invalidate_availability_cache()
-
-        # Ultra-fast non-blocking sheet sync so submit response returns instantly (<50ms)
-        sheets = get_sheets()
-        if sheets and not res.already and res.selection:
-            def _async_sync_submitted_row(sel):
-                try:
-                    row_val = [
-                        sel["seq"],
-                        config.fmt_ist(sel["created_ms"]),
-                        sel["name"],
-                        sel["register_no"],
-                        sel["email"],
-                        sel["faculty"]
-                    ]
-                    sheets.write_rows([(sel["seq"] + 1, row_val)])
-                    from db import selections
-                    with engine_.begin() as conn:
-                        conn.execute(
-                            update(selections)
-                            .where(selections.c.seq_id == sel["seq"])
-                            .values(synced=1, sync_error=None)
-                        )
-                except Exception as exc:
-                    log.exception("Async sheet sync error on submit")
-
-            import threading
-            threading.Thread(target=_async_sync_submitted_row, args=(res.selection,), daemon=True).start()
-
         return jsonify({"ok": True, "already": res.already, "selection": sel_json(res.selection)})
+
+    @app.post("/api/sync-mine")
+    def sync_mine():
+        ident = session.get("identity")
+        if not ident:
+            return jsonify({"ok": True, "synced": False})
+        sheets = get_sheets()
+        if not sheets:
+            return jsonify({"ok": True, "synced": False})
+        engine_ = get_engine()
+        try:
+            sheets_sync.sync_pending(engine_, sheets, limit=10)
+        except Exception:
+            log.exception("Background sync-mine error")
+        return jsonify({"ok": True, "synced": True})
 
     @app.post("/api/sync")
     def sync():

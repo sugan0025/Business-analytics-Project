@@ -128,43 +128,48 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
     """Claim one seat for `identity` ({email, name, register_no}) with `faculty_id`."""
     email = identity["email"]
     register_no = identity["register_no"]
+    student_name = identity["name"]
     window_ms = timer_ms + grace_ms
 
     with engine.begin() as conn:
-        existing = get_selection(conn, email=email, register_no=register_no)
-        if existing:
-            return _existing_result(existing, email, faculty_id)
-        fac = conn.execute(select(faculty).where(faculty.c.id == faculty_id)).mappings().first()
-        if fac is None:
-            return _fail("invalid_faculty")
-        student = conn.execute(select(students).where(students.c.register_no == register_no)).mappings().first()
-        if student is None:
-            return _fail("invalid_student")
-        attempt = conn.execute(
-            select(attempts).where(attempts.c.email == email, attempts.c.status == "open")
-            .order_by(attempts.c.id.desc())
-        ).mappings().first()
-        if attempt is None:
-            ins = conn.execute(insert(attempts).values(email=email, started_ms=now_ms, status="open"))
-            att_id = ins.inserted_primary_key[0] if ins.inserted_primary_key else 1
-            attempt = {"id": att_id, "started_ms": now_ms, "status": "open"}
-        elif timer_ms > 0 and timer_ms < 86400000 and now_ms > attempt["started_ms"] + window_ms:
-            conn.execute(update(attempts).where(attempts.c.id == attempt["id"]).values(status="expired"))
-            return _fail("timer_expired")
+        # 1. Timer / attempt verification (1 query)
+        attempt_id = None
+        if timer_ms > 0 and timer_ms < 86400000:
+            att = conn.execute(
+                select(attempts.c.id, attempts.c.started_ms)
+                .where(attempts.c.email == email, attempts.c.status == "open")
+                .order_by(attempts.c.id.desc())
+            ).first()
+            if att:
+                att_id, started_ms = att[0], att[1]
+                if now_ms > started_ms + window_ms:
+                    conn.execute(update(attempts).where(attempts.c.id == att_id).values(status="expired"))
+                    return _fail("timer_expired")
+                attempt_id = att_id
+            else:
+                ins = conn.execute(insert(attempts).values(email=email, started_ms=now_ms, status="open"))
+                attempt_id = ins.inserted_primary_key[0] if ins.inserted_primary_key else 1
 
-        # 1) take the seat: only succeeds while seats remain
+        # 2. Claim seat and fetch faculty name in 1 atomic roundtrip
         taken = conn.execute(
             update(faculty)
             .where(faculty.c.id == faculty_id, faculty.c.selected_count < faculty.c.capacity)
             .values(selected_count=faculty.c.selected_count + 1)
-        )
-        if taken.rowcount != 1:
+            .returning(faculty.c.name)
+        ).first()
+
+        if not taken:
+            fac_exists = conn.execute(select(faculty.c.id).where(faculty.c.id == faculty_id)).scalar()
+            if not fac_exists:
+                return _fail("invalid_faculty")
             return _fail("faculty_full")
 
-        # 2) record the selection (unique email / register_no)
+        fac_name = taken[0]
+
+        # 3. Record selection (rely on UNIQUE constraints on email & register_no)
         try:
             res = conn.execute(insert(selections).values(
-                register_no=register_no, email=email, student_name=student["name"],
+                register_no=register_no, email=email, student_name=student_name,
                 faculty_id=faculty_id, created_ms=now_ms, synced=0))
         except IntegrityError:
             existing = get_selection(conn, email=email, register_no=register_no)
@@ -173,16 +178,23 @@ def claim_seat(engine, identity, faculty_id, now_ms, timer_ms, grace_ms=2000):
             return _fail("already_submitted")
         seq_id = res.inserted_primary_key[0]
 
-        # 3) burn the attempt atomically
-        conn.execute(
-            update(attempts)
-            .where(attempts.c.id == attempt["id"], attempts.c.status == "open")
-            .values(status="used")
-        )
+        # 4. Burn open attempt
+        if attempt_id:
+            conn.execute(
+                update(attempts)
+                .where(attempts.c.id == attempt_id)
+                .values(status="used")
+            )
+        else:
+            conn.execute(
+                update(attempts)
+                .where(attempts.c.email == email, attempts.c.status == "open")
+                .values(status="used")
+            )
 
         return Result(True, selection={
-            "seq": seq_id, "faculty_id": faculty_id, "faculty": fac["name"], "created_ms": now_ms,
-            "register_no": register_no, "name": student["name"], "email": email,
+            "seq": seq_id, "faculty_id": faculty_id, "faculty": fac_name, "created_ms": now_ms,
+            "register_no": register_no, "name": student_name, "email": email,
         })
 
 

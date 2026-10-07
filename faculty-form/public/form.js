@@ -1322,7 +1322,6 @@
 
     bindSwitch();
     renderOptions();
-    refreshAvailability();
 
     $('#submitBtn').addEventListener('click', submit);
     $('#clearBtn').addEventListener('click', clearForm);
@@ -1580,6 +1579,9 @@
       </div>
       <div class="form-note">Selections can't be changed. Contact your coordinator if something is wrong.</div>`;
     bindSwitch();
+
+    // Fire non-blocking background sync to Google Sheets (response already rendered to user)
+    api('POST', '/api/sync-mine').catch(() => {});
 
     /*
     // Reset selection test button (hidden from UI, preserved in code as comments):

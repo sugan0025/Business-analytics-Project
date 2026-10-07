@@ -30,11 +30,41 @@ DEFAULT_FACULTY_MAP = {
 }
 
 
+_certs_cache = {"data": None, "expires_at": 0.0}
+_session = None
+
+
+class _CachedResponse:
+    def __init__(self, data):
+        self.status = 200
+        self.data = data
+        self.headers = {}
+
+
 def _get_google_request():
-    global _google_request
+    global _google_request, _session
     if _google_request is None:
+        import time
+        import requests
         from google.auth.transport import requests as g_requests
-        _google_request = g_requests.Request()
+
+        class CachedGoogleRequest(g_requests.Request):
+            def __call__(self, url, method="GET", body=None, headers=None, timeout=None, **kwargs):
+                if method.upper() == "GET" and "googleapis.com" in url and "certs" in url:
+                    now = time.time()
+                    if _certs_cache["data"] is not None and now < _certs_cache["expires_at"]:
+                        return _CachedResponse(_certs_cache["data"])
+                    resp = super().__call__(url, method=method, body=body, headers=headers, timeout=timeout, **kwargs)
+                    if resp.status == 200 and resp.data:
+                        _certs_cache["data"] = resp.data
+                        _certs_cache["expires_at"] = now + 21600  # Cache for 6 hours (matching Google's Cache-Control)
+                    return resp
+                return super().__call__(url, method=method, body=body, headers=headers, timeout=timeout, **kwargs)
+
+        _session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=5, pool_maxsize=10, max_retries=2)
+        _session.mount("https://", adapter)
+        _google_request = CachedGoogleRequest(session=_session)
     return _google_request
 
 
