@@ -332,7 +332,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "domain": settings.email_domain,
         }
         initial_state = get_initial_state(include_attempt=True)
-        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v="2026.4")
+        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v="2026.5")
 
     @app.get("/healthz")
     def healthz():
@@ -713,6 +713,14 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if old_reg and sheets:
             try:
                 sheets_sync.sync_pending(engine_, sheets, limit=5)
+            except Exception:
+                pass
+
+        if sheets and hasattr(sheets, "sync_roster_tab"):
+            try:
+                with engine_.connect() as conn:
+                    stu_rows = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
+                    sheets.sync_roster_tab([dict(s) for s in stu_rows])
             except Exception:
                 pass
 

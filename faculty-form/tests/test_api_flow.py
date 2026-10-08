@@ -284,3 +284,70 @@ def test_admin_reset_database_authorization_and_flow(settings, engine, students,
     finally:
         auth.verify_google_token = original
 
+
+def test_admin_edit_student_flow(settings, engine, students, sheets):
+    original = auth.verify_google_token
+    try:
+        def fake_verify(credential, client_id):
+            if credential == "admin":
+                return {"email": "murugappans@bitsathy.ac.in", "email_verified": True, "hd": "bitsathy.ac.in", "name": "Dr Murugappan"}
+            if credential == "student":
+                return {"email": students[0]["email"], "email_verified": True, "hd": "bitsathy.ac.in", "name": students[0]["name"]}
+            raise AuthError("invalid_token", "bad", 401)
+
+        auth.verify_google_token = fake_verify
+        app = create_app(settings, engine, sheets)
+
+        # 1. Unauthenticated / Student cannot save
+        c_anon = app.test_client()
+        assert c_anon.post("/api/admin/database/students/save", json={"register_no": "TEST", "name": "Test"}).status_code in (401, 403)
+
+        c_stu = app.test_client()
+        sign_in(c_stu, "student")
+        assert c_stu.post("/api/admin/database/students/save", json={"register_no": "TEST", "name": "Test"}).status_code == 403
+
+        # 2. Student claims a seat first
+        c_stu.post("/api/start")
+        assert c_stu.post("/api/submit", json={"faculty_id": 2}).status_code == 200
+
+        # 3. Admin edits the student's register number and name
+        c_admin = app.test_client()
+        sign_in(c_admin, "admin")
+
+        orig_reg = students[0]["register_no"]
+        new_reg = orig_reg + "X"
+        new_name = students[0]["name"] + " Updated"
+
+        res = c_admin.post("/api/admin/database/students/save", json={
+            "old_register_no": orig_reg,
+            "register_no": new_reg,
+            "name": new_name,
+            "email": students[0]["email"],
+        })
+        assert res.status_code == 200
+        assert res.get_json()["ok"] is True
+
+        # 4. Verify DB students and selections table are synchronized
+        from sqlalchemy import select
+        import db
+        with engine.connect() as conn:
+            s_row = conn.execute(select(db.students).where(db.students.c.register_no == new_reg)).mappings().first()
+            assert s_row is not None
+            assert s_row["name"] == new_name
+
+            sel_row = conn.execute(select(db.selections).where(db.selections.c.email == students[0]["email"])).mappings().first()
+            assert sel_row is not None
+            assert sel_row["register_no"] == new_reg
+            assert sel_row["student_name"] == new_name
+
+        # 5. Duplicate checks
+        dup = c_admin.post("/api/admin/database/students/save", json={
+            "old_register_no": students[1]["register_no"],
+            "register_no": new_reg,
+            "name": "Another",
+            "email": "another.mb25@bitsathy.ac.in",
+        })
+        assert dup.status_code == 400 and dup.get_json()["code"] == "duplicate_reg"
+    finally:
+        auth.verify_google_token = original
+

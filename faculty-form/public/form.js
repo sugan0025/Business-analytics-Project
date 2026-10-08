@@ -1023,24 +1023,25 @@
 
       wrapper.querySelectorAll('.edit-student-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          const reg = btn.dataset.reg;
-          const stu = dbStudentsCache.find(x => x.register_no === reg);
+          const reg = (btn.dataset.reg || '').trim();
+          const stu = (dbStudentsCache || []).find(x => x.register_no === reg || (x.register_no && x.register_no.trim().toUpperCase() === reg.toUpperCase()));
           if (stu) openStudentModal(stu);
+          else openStudentModal({ register_no: reg, name: '', email: '' });
         });
       });
 
       wrapper.querySelectorAll('.reset-student-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          const reg = btn.dataset.reg;
-          const stu = dbStudentsCache.find(x => x.register_no === reg);
+          const reg = (btn.dataset.reg || '').trim();
+          const stu = (dbStudentsCache || []).find(x => x.register_no === reg || (x.register_no && x.register_no.trim().toUpperCase() === reg.toUpperCase()));
           if (stu) confirmResetStudentChoice(stu);
         });
       });
 
       wrapper.querySelectorAll('.delete-student-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          const reg = btn.dataset.reg;
-          const stu = dbStudentsCache.find(x => x.register_no === reg);
+          const reg = (btn.dataset.reg || '').trim();
+          const stu = (dbStudentsCache || []).find(x => x.register_no === reg || (x.register_no && x.register_no.trim().toUpperCase() === reg.toUpperCase()));
           if (stu) confirmDeleteStudent(stu);
         });
       });
