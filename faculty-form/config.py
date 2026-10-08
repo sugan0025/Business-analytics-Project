@@ -67,6 +67,7 @@ class Settings:
     responses_tab: str
     summary_tab: str
     secure_cookies: bool
+    roster_file: str = ""
 
 
 def normalize_db_url(url: str) -> str:
@@ -107,6 +108,7 @@ def load_settings() -> Settings:
         responses_tab=os.environ.get("RESPONSES_TAB", "Responses"),
         summary_tab=os.environ.get("SUMMARY_TAB", "Summary"),
         secure_cookies=on_vercel(),
+        roster_file=os.environ.get("ROSTER_FILE", "").strip(),
     )
 
 

@@ -319,6 +319,31 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
     return True
 
 
+def sync_roster_csv(engine, roster_path=None, faculty_path=None):
+    """Rewrite roster.csv from the students table and update seed_hash in DB."""
+    roster_path = roster_path or (BASE_DIR / "roster.csv")
+    faculty_path = faculty_path or (BASE_DIR / "faculty.csv")
+    try:
+        with engine.connect() as conn:
+            all_stus = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
+        if all_stus:
+            with open(roster_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["register_no", "name", "email"])
+                for s in all_stus:
+                    writer.writerow([s["register_no"], s["name"], s.get("email") or ""])
+            digest = _files_hash(faculty_path, roster_path)
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM settings WHERE key = 'seed_hash'"))
+                conn.execute(insert(settings_kv).values(key="seed_hash", value=digest))
+            return True
+    except (OSError, PermissionError) as exc:
+        log.warning(f"roster.csv sync skipped (read-only filesystem): {exc}")
+    except Exception as exc:
+        log.exception(f"Error syncing roster.csv: {exc}")
+    return False
+
+
 # ---- lazy, once-per-process readiness (serverless friendly) ------------------
 
 _ready_lock = threading.Lock()

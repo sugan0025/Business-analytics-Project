@@ -724,6 +724,11 @@ def create_app(settings=None, engine=None, sheets_client=None):
             except Exception:
                 pass
 
+        # Sync changes to roster.csv file in real time
+        from pathlib import Path
+        r_path = Path(settings.roster_file) if getattr(settings, "roster_file", "") else None
+        db.sync_roster_csv(engine_, roster_path=r_path)
+
         return jsonify({"ok": True, "message": "Student record saved successfully."})
 
     @app.post("/api/admin/database/students/reset")
@@ -785,6 +790,11 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 sheets_sync.rewrite_all_selections(engine_, sheets)
             except Exception:
                 pass
+
+        # Sync changes to roster.csv file in real time
+        from pathlib import Path
+        r_path = Path(settings.roster_file) if getattr(settings, "roster_file", "") else None
+        db.sync_roster_csv(engine_, roster_path=r_path)
 
         return jsonify({"ok": True, "message": f"Student {reg_no} removed from database."})
 

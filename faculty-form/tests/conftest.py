@@ -15,6 +15,7 @@ def settings(tmp_path):
         secret_key="test-secret", dev_login=False, service_account_json="", service_account_file="",
         open_at="", form_closed=False, timer_seconds=60, max_attempts=5, grace_seconds=2,
         email_domain="bitsathy.ac.in", email_local_suffix=".mb25", sync_token="sync-secret",
+        roster_file=str(tmp_path / "roster.csv"),
     )
 
 
