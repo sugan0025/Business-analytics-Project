@@ -325,7 +325,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
             "domain": settings.email_domain,
         }
         initial_state = get_initial_state(include_attempt=True)
-        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v="2026.3")
+        return render_template("index.html", cfg=cfg, initial_state=initial_state, title=settings.form_title, v="2026.4")
 
     @app.get("/healthz")
     def healthz():
@@ -772,6 +772,99 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 pass
 
         return jsonify({"ok": True, "message": f"Student {reg_no} removed from database."})
+
+    @app.post("/api/admin/database/reset")
+    def admin_reset_database():
+        ident = current_identity()
+        if not ident.get("is_admin") and ident.get("role") != "director":
+            return err("forbidden", "Admin or director access required.", 403)
+
+        engine_ = get_engine()
+        sheets = get_sheets()
+        from db import attempts, faculty, faculty_student_selections, selections, test_selections
+
+        with engine_.begin() as conn:
+            conn.execute(delete(selections))
+            conn.execute(delete(attempts))
+            conn.execute(delete(faculty_student_selections))
+            conn.execute(delete(test_selections))
+            conn.execute(update(faculty).values(selected_count=0))
+
+            if "sqlite" in str(engine_.url):
+                try:
+                    conn.execute(text("DELETE FROM sqlite_sequence WHERE name IN ('selections', 'faculty_student_selections', 'test_selections', 'attempts')"))
+                except Exception:
+                    pass
+            else:
+                for seq_tbl, col in [("selections", "seq_id"), ("faculty_student_selections", "id"), ("test_selections", "id"), ("attempts", "id")]:
+                    try:
+                        conn.execute(text(f"SELECT setval(pg_get_serial_sequence('{seq_tbl}', '{col}'), 1, false)"))
+                    except Exception:
+                        try:
+                            conn.execute(text(f"SELECT setval('{seq_tbl}_{col}_seq', 1, false)"))
+                        except Exception:
+                            pass
+
+        invalidate_availability_cache()
+
+        sheet_cleared = False
+        sheet_error = None
+        if sheets:
+            try:
+                res_tab = getattr(sheets, "responses_tab", "Responses")
+                fac_tab = getattr(sheets, "faculty_tab", "Faculty Selections")
+                tst_tab = getattr(sheets, "test_tab", "Test Responses")
+
+                if hasattr(sheets, "ensure_tab"):
+                    sheets.ensure_tab(res_tab, sheets_sync.HEADERS)
+                if hasattr(sheets, "clear_range"):
+                    sheets.clear_range(f"'{res_tab}'!A2:F500")
+                if hasattr(sheets, "clear_rows"):
+                    sheets.clear_rows(list(range(2, 500)))
+
+                if hasattr(sheets, "ensure_tab"):
+                    try:
+                        sheets.ensure_tab(fac_tab, sheets_sync.FACULTY_HEADERS)
+                    except Exception:
+                        pass
+                if hasattr(sheets, "clear_range"):
+                    try:
+                        sheets.clear_range(f"'{fac_tab}'!A2:F500")
+                    except Exception:
+                        pass
+
+                if hasattr(sheets, "ensure_tab"):
+                    try:
+                        sheets.ensure_tab(tst_tab, sheets_sync.TEST_HEADERS)
+                    except Exception:
+                        pass
+                if hasattr(sheets, "clear_range"):
+                    try:
+                        sheets.clear_range(f"'{tst_tab}'!A2:F500")
+                    except Exception:
+                        pass
+
+                if hasattr(sheets, "update_summary_tab"):
+                    with engine_.connect() as conn:
+                        active_facs = conn.execute(
+                            select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
+                        ).mappings().all()
+                        sheets.update_summary_tab([dict(f) for f in active_facs])
+                sheet_cleared = True
+            except Exception as exc:
+                log.exception("Error clearing Google Sheet on database reset")
+                sheet_error = str(exc)
+
+        msg = "Current runtime allocation data cleared successfully."
+        if sheet_error:
+            msg += f" Note: Google Sheet clear warning: {sheet_error}"
+
+        return jsonify({
+            "ok": True,
+            "message": msg,
+            "sheet_cleared": sheet_cleared,
+            "sheet_error": sheet_error,
+        })
 
     @app.get("/api/admin/database/faculties")
     def admin_get_faculties():

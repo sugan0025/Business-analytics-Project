@@ -218,3 +218,69 @@ def test_admin_reconcile_sheets_authorization(settings, engine, students, sheets
         assert res_admin.status_code == 200 and res_admin.get_json()["ok"] is True
     finally:
         auth.verify_google_token = original
+
+
+def test_admin_reset_database_authorization_and_flow(settings, engine, students, sheets):
+    original = auth.verify_google_token
+    try:
+        accounts = {
+            "admin": {"email": "murugappans@bitsathy.ac.in", "name": "Dr Murugappan S", "hd": "bitsathy.ac.in"},
+            "faculty": {"email": "adhinarayananb@bitsathy.ac.in", "name": "Dr Adhinarayanan B", "hd": "bitsathy.ac.in"},
+            "student": students[0],
+        }
+        def fake_verify(cred, client_id):
+            if cred in accounts:
+                return {**accounts[cred], "email_verified": True}
+            raise AuthError("bad", "bad", 401)
+        auth.verify_google_token = fake_verify
+
+        # 1. Unauthenticated -> 401
+        c_unauth = create_app(settings, engine, sheets).test_client()
+        assert c_unauth.post("/api/admin/database/reset").status_code == 401
+
+        # 2. Student signs in and selects faculty
+        c_stu = create_app(settings, engine, sheets).test_client()
+        sign_in(c_stu, "student")
+        c_stu.post("/api/start")
+        sub_res = c_stu.post("/api/submit", json={"faculty_id": 2, "register_no": students[0]["register_no"]})
+        assert sub_res.status_code == 200
+
+        # Student attempts reset -> 403
+        assert c_stu.post("/api/admin/database/reset").status_code == 403
+
+        # 3. Faculty attempts reset -> 403
+        c_fac = create_app(settings, engine, sheets).test_client()
+        sign_in(c_fac, "faculty")
+        assert c_fac.post("/api/admin/database/reset").status_code == 403
+
+        # 4. Admin executes reset -> 200
+        c_admin = create_app(settings, engine, sheets).test_client()
+        sign_in(c_admin, "admin")
+        res_reset = c_admin.post("/api/admin/database/reset")
+        assert res_reset.status_code == 200
+        assert res_reset.get_json()["ok"] is True
+
+        # Verify DB runtime state: selections=0, attempts=0, counts=0
+        from sqlalchemy import select, func
+        import db
+        with engine.connect() as conn:
+            assert conn.execute(select(func.count()).select_from(db.selections)).scalar() == 0
+            assert conn.execute(select(func.count()).select_from(db.attempts)).scalar() == 0
+            f2_count = conn.execute(select(db.faculty.c.selected_count).where(db.faculty.c.id == 2)).scalar()
+            assert f2_count == 0
+            # Roster in DB is untouched
+            assert conn.execute(select(func.count()).select_from(db.students)).scalar() == 44
+
+        # 5. Student logs in again and successfully makes a new selection
+        c_stu2 = create_app(settings, engine, sheets).test_client()
+        sign_in(c_stu2, "student")
+        me_data = c_stu2.get("/api/me").get_json()
+        assert me_data["selection"] is None
+        c_stu2.post("/api/start")
+        sub2 = c_stu2.post("/api/submit", json={"faculty_id": 3, "register_no": students[0]["register_no"]})
+        assert sub2.status_code == 200
+        assert sub2.get_json()["selection"]["faculty_id"] == 3
+        assert sub2.get_json()["selection"]["seq"] == 1
+    finally:
+        auth.verify_google_token = original
+

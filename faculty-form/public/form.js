@@ -740,7 +740,7 @@
   let dbFacultiesCache = null;
   let dbSearchQuery = '';
 
-  function showModal({ title, bodyHtml, confirmText = 'Save', confirmBtnClass = 'btn-primary', onConfirm }) {
+  function showModal({ title, bodyHtml, confirmText = 'Save', confirmBtnClass = 'btn-primary', loadingText = 'Saving…', onConfirm }) {
     const old = document.querySelector('.modal-backdrop');
     if (old) old.remove();
 
@@ -775,7 +775,7 @@
     confirmBtn.addEventListener('click', async () => {
       confirmBtn.disabled = true;
       const originalText = confirmBtn.textContent;
-      confirmBtn.textContent = 'Saving…';
+      confirmBtn.textContent = loadingText || 'Saving…';
       try {
         const ok = await onConfirm(backdrop);
         if (ok) close();
@@ -826,6 +826,11 @@
             <button class="btn-primary" id="dbAddBtn" type="button" style="padding: 7px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
               ${currentDbSubTab === 'students' ? '➕ Add Student' : '➕ Add Faculty'}
             </button>
+            ${currentDbSubTab === 'students' ? `
+            <button class="btn-danger-outline" id="dbResetBtn" type="button" title="Reset Current Allocation Data">
+              ⚠️ Reset Database
+            </button>
+            ` : ''}
             <button class="btn-text" id="dbRefreshBtn" type="button" style="padding: 6px 10px; font-size: 13px;" title="Refresh Data">
               ${ico('refresh')} Refresh
             </button>
@@ -842,6 +847,7 @@
     const subFaculties = $('#dbSubtabFaculties');
     const searchInput = $('#dbSearchInput');
     const addBtn = $('#dbAddBtn');
+    const resetBtn = $('#dbResetBtn');
     const refreshBtn = $('#dbRefreshBtn');
 
     if (subStudents) {
@@ -878,6 +884,12 @@
         if (currentDbSubTab === 'students') dbStudentsCache = null;
         else dbFacultiesCache = null;
         loadDatabaseData();
+      });
+    }
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        confirmResetDatabase();
       });
     }
 
@@ -1342,6 +1354,45 @@
         }
       });
     }
+  }
+
+  function confirmResetDatabase() {
+    showModal({
+      title: '⚠️ Reset Database?',
+      bodyHtml: `
+        <div style="font-size: 13.5px; line-height: 1.55; color: var(--text-primary);">
+          <p style="margin: 0 0 12px 0;">
+            This will clear the current student faculty selections, submissions, and allocation data from Supabase and Google Sheets.
+          </p>
+          <div class="modal-note" style="border-left-color: #1e8e3e; background: rgba(30, 142, 62, 0.08); color: #137333; margin-bottom: 12px; padding: 10px 12px; border-radius: 4px; font-size: 13px;">
+            🔒 <b>Safe:</b> The original student/master data stored in the backend Python files will <b>NOT</b> be deleted or modified.
+          </div>
+          <p style="margin: 0 0 12px 0;">
+            After the reset, students can sign in and start the faculty selection process again.
+          </p>
+          <p style="margin: 0; font-weight: 600; color: #d93025;">
+            Are you sure you want to continue?
+          </p>
+        </div>
+      `,
+      confirmText: 'Reset Database',
+      confirmBtnClass: 'btn-danger',
+      loadingText: 'Resetting…',
+      onConfirm: async () => {
+        const res = await api('POST', '/api/admin/database/reset');
+        if (!res.ok) {
+          toast(res.data?.message || 'Failed to reset database.');
+          return false;
+        }
+        toast(res.data?.message || '✓ Current allocation data reset successfully.');
+        dbStudentsCache = null;
+        dbFacultiesCache = null;
+        await loadDatabaseData();
+        const rMe = await api('GET', '/api/director/overview');
+        if (rMe.ok) me.master_overview = rMe.data.master_overview;
+        return true;
+      }
+    });
   }
 
   function openFacultyModal(fac) {

@@ -188,6 +188,21 @@ select.text-input:focus { border-color: var(--primary); }
 }
 .btn-text:hover:not(:disabled) { background: rgba(103, 58, 183, 0.08); }
 .btn-text:disabled { color: var(--text-hint); cursor: not-allowed; }
+.btn-danger {
+  background: #d93025; color: #fff; border: none; padding: 10px 24px;
+  border-radius: 4px; font-family: var(--font-display); font-size: 14px; font-weight: 500;
+  cursor: pointer; box-shadow: var(--shadow-sm); transition: all var(--transition);
+}
+.btn-danger:hover:not(:disabled) { box-shadow: var(--shadow-md); background: #c5221f; }
+.btn-danger:disabled { background: #bdbdbd; box-shadow: none; cursor: not-allowed; }
+.btn-danger-outline {
+  background: rgba(217, 48, 37, 0.06); color: #d93025; border: 1px solid rgba(217, 48, 37, 0.35);
+  padding: 7px 14px; border-radius: 6px; font-family: var(--font-display); font-size: 13px;
+  font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: all var(--transition);
+}
+.btn-danger-outline:hover:not(:disabled) { background: rgba(217, 48, 37, 0.12); border-color: #d93025; color: #c5221f; }
+.btn-danger-outline:disabled { opacity: 0.5; cursor: not-allowed; }
 .form-note { font-size: 12px; color: var(--text-secondary); margin-top: 16px; text-align: center; }
 
 /* ---- banners ---- */
