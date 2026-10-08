@@ -282,15 +282,35 @@ def seed(engine, faculty_path=None, roster_path=None, force=False):
             else:
                 target_cap = max(cap, existing["selected_count"])
                 conn.execute(update(faculty).where(faculty.c.id == fid).values(name=r["name"], capacity=target_cap, email=fac_email, specialization=spec))
+        conn.execute(delete(students))
         for r in stu_rows:
             reg = r["register_no"].upper()
             email = r.get("email", "").lower() or None
-            existing = conn.execute(select(students).where(students.c.register_no == reg)).mappings().first()
-            if existing is None:
-                conn.execute(insert(students).values(register_no=reg, name=r["name"], email=email))
-            else:
-                conn.execute(update(students).where(students.c.register_no == reg)
-                             .values(name=r["name"], email=email))
+            conn.execute(insert(students).values(register_no=reg, name=r["name"], email=email))
+
+        # Safely sync any existing selections with the updated roster without register_no conflicts
+        cur_sels = conn.execute(select(selections)).mappings().all()
+        if cur_sels:
+            roster_by_email = {r.get("email", "").lower(): (r["register_no"].upper(), r["name"]) for r in stu_rows if r.get("email")}
+            # Temporary prefix to avoid collision on unique register_no
+            for s in cur_sels:
+                s_email = (s.get("email") or "").lower()
+                if s_email in roster_by_email:
+                    conn.execute(
+                        update(selections)
+                        .where(selections.c.seq_id == s["seq_id"])
+                        .values(register_no=f"_TMP_{s['seq_id']}")
+                    )
+            # Final assignment with correct register_no and student_name
+            for s in cur_sels:
+                s_email = (s.get("email") or "").lower()
+                if s_email in roster_by_email:
+                    new_reg, new_name = roster_by_email[s_email]
+                    conn.execute(
+                        update(selections)
+                        .where(selections.c.seq_id == s["seq_id"])
+                        .values(register_no=new_reg, student_name=new_name, synced=0)
+                    )
         try:
             conn.execute(text("DELETE FROM settings WHERE key = 'seed_hash'"))
             conn.execute(insert(settings_kv).values(key="seed_hash", value=digest))
@@ -308,10 +328,10 @@ _ready_for = set()
 def ensure_ready(engine):
     key = str(engine.url)
     if key in _ready_for:
-        return
+        return False
     with _ready_lock:
         if key in _ready_for:
-            return
+            return False
         faculty_path = BASE_DIR / "faculty.csv"
         roster_path = BASE_DIR / "roster.csv"
         digest = _files_hash(faculty_path, roster_path)
@@ -322,13 +342,14 @@ def ensure_ready(engine):
                 hash_row = conn.execute(select(settings_kv.c.value).where(settings_kv.c.key == "seed_hash")).first()
             if fac_cnt and fac_cnt >= 10 and hash_row and hash_row[0] == digest:
                 _ready_for.add(key)
-                return
+                return False
         except Exception:
             pass
 
         init_schema(engine)
-        seed(engine)
+        seeded = seed(engine)
         _ready_for.add(key)
+        return bool(seeded)
 
 
 def reset_ready_cache():

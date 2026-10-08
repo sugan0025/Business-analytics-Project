@@ -43,7 +43,14 @@ def create_app(settings=None, engine=None, sheets_client=None):
             if config.on_vercel() and settings.database_url.startswith("sqlite"):
                 raise RuntimeError("DATABASE_URL is not set. Add a Postgres database (Vercel Storage -> Neon).")
             state["engine"] = db.make_engine(settings.database_url)
-        db.ensure_ready(state["engine"])
+        seeded = db.ensure_ready(state["engine"])
+        if seeded:
+            try:
+                sh = get_sheets()
+                if sh:
+                    sheets_sync.rewrite_all_selections(state["engine"], sh)
+            except Exception as exc:
+                log.warning(f"Sheets sync after seed error: {exc}")
         return state["engine"]
 
     def get_sheets():

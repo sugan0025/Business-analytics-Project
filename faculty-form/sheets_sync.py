@@ -156,6 +156,30 @@ class GoogleSheetsClient:
             {"range": f"'{self.summary_tab}'!A1:D{len(summary)}", "values": summary},
         ]})
 
+    def sync_roster_tab(self, student_rows: List[dict]):
+        try:
+            meta = self._call("GET", "?fields=sheets.properties.title")
+            have = {s["properties"]["title"] for s in meta.get("sheets", [])}
+            tab_name = None
+            for candidate in ("Class Roster", "Student Roster", "Roster", "Students"):
+                if candidate in have:
+                    tab_name = candidate
+                    break
+            if not tab_name:
+                tab_name = "Class Roster"
+                self._call("POST", ":batchUpdate", json={"requests": [{"addSheet": {"properties": {"title": tab_name}}}]})
+
+            self.clear_range(f"'{tab_name}'!A1:C100")
+            data = [["Register No", "Name", "Email"]]
+            for s in student_rows:
+                data.append([s["register_no"], s["name"], s.get("email") or ""])
+            self._call("POST", "/values:batchUpdate", json={
+                "valueInputOption": "RAW",
+                "data": [{"range": f"'{tab_name}'!A1:C{len(data)}", "values": data}]
+            })
+        except Exception:
+            log.exception("Error syncing roster tab to Google Sheet")
+
 
 def get_client(settings: Settings):
     """Real client if credentials are configured, otherwise None (sync is skipped)."""
@@ -256,8 +280,10 @@ def rewrite_all_selections(engine, client) -> dict:
                 .order_by(selections.c.seq_id)
             ).mappings().all()
 
-        client.ensure_tab(client.responses_tab, HEADERS)
-        client.clear_range(f"'{client.responses_tab}'!A2:F200")
+        if hasattr(client, "ensure_tab"):
+            client.ensure_tab(getattr(client, "responses_tab", "Responses"), HEADERS)
+        if hasattr(client, "clear_range"):
+            client.clear_range(f"'{getattr(client, 'responses_tab', 'Responses')}'!A2:F200")
 
         if rows:
             sheet_rows = [(idx + 1, row_values(r)) for idx, r in enumerate(rows, start=1)]
@@ -279,12 +305,21 @@ def rewrite_all_selections(engine, client) -> dict:
                     conn.execute(update(faculty).where(faculty.c.id == f["id"]).values(selected_count=actual_cnt))
 
         # Always update Google Sheet Summary tab with active non-director faculties
-        with engine.connect() as conn:
-            active_facs = conn.execute(
-                select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
-            ).mappings().all()
-            active_fac_dicts = [dict(f) for f in active_facs]
-            client.update_summary_tab(active_fac_dicts)
+        active_fac_dicts = []
+        if hasattr(client, "update_summary_tab"):
+            with engine.connect() as conn:
+                active_facs = conn.execute(
+                    select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
+                ).mappings().all()
+                active_fac_dicts = [dict(f) for f in active_facs]
+                client.update_summary_tab(active_fac_dicts)
+
+        # Sync Class Roster tab with updated students if supported
+        if hasattr(client, "sync_roster_tab"):
+            from db import students
+            with engine.connect() as conn:
+                stu_rows = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
+                client.sync_roster_tab([dict(s) for s in stu_rows])
 
         return {"ok": True, "rewritten": len(rows), "summary_updated": len(active_fac_dicts)}
     except Exception as exc:
