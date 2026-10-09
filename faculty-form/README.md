@@ -19,8 +19,8 @@
 <br><br>
 
 <!-- Badges Row 1: Deployment & Stack -->
-<a href="https://faculty-selection-bitsathy.vercel.app">
-  <img src="https://img.shields.io/badge/%E2%96%B6_LIVE_PLATFORM-faculty--selection--bitsathy.vercel.app-38BDF8?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Platform" />
+<a href="https://project-faculty-selection-bitsathy.vercel.app">
+  <img src="https://img.shields.io/badge/%E2%96%B6_LIVE_PLATFORM-project--faculty--selection--bitsathy.vercel.app-38BDF8?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Platform" />
 </a>
 &nbsp;
 <a href="https://www.python.org/">
@@ -52,7 +52,7 @@
   <b>A mission-critical, high-concurrency web platform engineered for Bannari Amman Institute of Technology (BIT Sathy) II MBA students. Guarantees strict First-Come, First-Served (FCFS) fairness, sub-250ms authenticated latency, zero race conditions via PostgreSQL row locks, and multi-tab Google Sheets reconciliation with dedicated Faculty Portals and Test Simulation Modes.</b>
 </p>
 
-[⚡ Live Platform](https://faculty-selection-bitsathy.vercel.app) • [🏛️ System Architecture](#️-system-architecture) • [🔒 Concurrency Guarantees](#-concurrency--fairness-guarantees) • [👥 Faculty Portals](#-faculty-access--portal-features) • [📊 Google Sheets Sync](#-multi-tab-google-sheets-sync-v4) • [📁 Project Structure](#-project-directory-structure) • [🛠️ Admin CLI](#️-administrative-cli-tool-managepy)
+[⚡ Live Platform](https://project-faculty-selection-bitsathy.vercel.app) • [🏛️ System Architecture](#️-system-architecture) • [🔒 Concurrency Guarantees](#-concurrency--fairness-guarantees) • [👥 Faculty Portals](#-faculty-access--portal-features) • [📊 Google Sheets Sync](#-multi-tab-google-sheets-sync-v4) • [📁 Project Structure](#-project-directory-structure) • [🛠️ Admin CLI](#️-administrative-cli-tool-managepy)
 
 </div>
 
@@ -305,13 +305,13 @@ python manage.py export export.csv
 Architect           : Suganesan S (Sugan)
 Institution         : Bannari Amman Institute of Technology (BIT Sathy)
 Department          : School of Management Studies (II MBA Batch)
-Live URL            : https://faculty-selection-bitsathy.vercel.app
+Live URL            : https://project-faculty-selection-bitsathy.vercel.app
 GitHub Repository   : https://github.com/sugan0025/Business-analytics-Project
 ```
 
 <div align="center">
 
-<a href="https://faculty-selection-bitsathy.vercel.app">
+<a href="https://project-faculty-selection-bitsathy.vercel.app">
   <img src="https://img.shields.io/badge/%E2%9A%A1_Experience_Faculty_Selection-38BDF8?style=for-the-badge&logoColor=white" />
 </a>
 &nbsp;

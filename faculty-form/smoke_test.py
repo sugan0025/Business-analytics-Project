@@ -1,7 +1,8 @@
+import os
 import requests
 import time
 
-base_url = 'https://faculty-selection-bitsathy.vercel.app'
+base_url = 'https://project-faculty-selection-bitsathy.vercel.app'
 
 print('--- 1. Testing Healthz ---')
 for i in range(12):
@@ -19,9 +20,10 @@ for i in range(12):
 
 print('\n--- 2. Triggering Full Rewrite & Resequence to Google Sheet ---')
 t0 = time.time()
+sync_token = os.environ.get('SYNC_TOKEN', '').strip()
 r_sync = requests.post(
     f'{base_url}/api/sync?full=1',
-    headers={'X-Sync-Token': 'bitsathy-sync-2026'},
+    headers={'X-Sync-Token': sync_token} if sync_token else {},
     timeout=25
 )
 dt = (time.time() - t0) * 1000

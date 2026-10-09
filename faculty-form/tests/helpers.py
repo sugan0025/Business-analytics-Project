@@ -70,3 +70,9 @@ class FakeSheets:
     def clear_rows(self, row_numbers):
         for n in row_numbers:
             self.rows.pop(n, None)
+
+    def update_summary_tab(self, rows=None):
+        pass
+
+    def delete_extra_tabs(self):
+        return 0

@@ -83,8 +83,16 @@ def load_settings() -> Settings:
     db_url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or ""
     if not db_url:
         db_url = f"sqlite:///{BASE_DIR / 'faculty.db'}"
+    secret_key = os.environ.get("SECRET_KEY", "").strip()
+    if not secret_key:
+        if is_production():
+            raise RuntimeError("SECRET_KEY environment variable is required in production.")
+        secret_key = "dev-only-change-me"
+    elif is_production() and secret_key == "dev-only-change-me":
+        raise RuntimeError("Insecure default SECRET_KEY ('dev-only-change-me') is forbidden in production.")
+
     return Settings(
-        secret_key=os.environ.get("SECRET_KEY", "dev-only-change-me"),
+        secret_key=secret_key,
         database_url=normalize_db_url(db_url),
         google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
         sheet_id=os.environ.get("GOOGLE_SHEET_ID", "1n6X-h_8SkutNImAgkLsbxogW5Qz8yD6-Z8SyhiNp2BI").strip(),

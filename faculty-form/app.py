@@ -716,13 +716,6 @@ def create_app(settings=None, engine=None, sheets_client=None):
             except Exception:
                 pass
 
-        if sheets and hasattr(sheets, "sync_roster_tab"):
-            try:
-                with engine_.connect() as conn:
-                    stu_rows = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
-                    sheets.sync_roster_tab([dict(s) for s in stu_rows])
-            except Exception:
-                pass
 
         # Sync changes to roster.csv file in real time
         from pathlib import Path
@@ -837,8 +830,6 @@ def create_app(settings=None, engine=None, sheets_client=None):
         if sheets:
             try:
                 res_tab = getattr(sheets, "responses_tab", "Responses")
-                fac_tab = getattr(sheets, "faculty_tab", "Faculty Selections")
-                tst_tab = getattr(sheets, "test_tab", "Test Responses")
 
                 if hasattr(sheets, "ensure_tab"):
                     sheets.ensure_tab(res_tab, sheets_sync.HEADERS)
@@ -847,34 +838,18 @@ def create_app(settings=None, engine=None, sheets_client=None):
                 if hasattr(sheets, "clear_rows"):
                     sheets.clear_rows(list(range(2, 500)))
 
-                if hasattr(sheets, "ensure_tab"):
-                    try:
-                        sheets.ensure_tab(fac_tab, sheets_sync.FACULTY_HEADERS)
-                    except Exception:
-                        pass
-                if hasattr(sheets, "clear_range"):
-                    try:
-                        sheets.clear_range(f"'{fac_tab}'!A2:F500")
-                    except Exception:
-                        pass
-
-                if hasattr(sheets, "ensure_tab"):
-                    try:
-                        sheets.ensure_tab(tst_tab, sheets_sync.TEST_HEADERS)
-                    except Exception:
-                        pass
-                if hasattr(sheets, "clear_range"):
-                    try:
-                        sheets.clear_range(f"'{tst_tab}'!A2:F500")
-                    except Exception:
-                        pass
-
                 if hasattr(sheets, "update_summary_tab"):
                     with engine_.connect() as conn:
                         active_facs = conn.execute(
                             select(faculty).where(faculty.c.id != 1).order_by(faculty.c.id)
                         ).mappings().all()
                         sheets.update_summary_tab([dict(f) for f in active_facs])
+
+                if hasattr(sheets, "delete_extra_tabs"):
+                    try:
+                        sheets.delete_extra_tabs()
+                    except Exception:
+                        pass
                 sheet_cleared = True
             except Exception as exc:
                 log.exception("Error clearing Google Sheet on database reset")
@@ -1220,7 +1195,7 @@ def create_app(settings=None, engine=None, sheets_client=None):
     @app.post("/api/sync")
     def sync():
         token = request.headers.get("X-Sync-Token", "")
-        valid_tokens = [t for t in (settings.sync_token, "bitsathy-sync-2026") if t]
+        valid_tokens = [settings.sync_token] if settings.sync_token else []
         if not valid_tokens or token not in valid_tokens:
             return err("forbidden", "Forbidden.", 403)
         engine_ = get_engine()

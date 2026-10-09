@@ -2,6 +2,7 @@
 from dataclasses import replace
 
 import auth
+import config
 from app import create_app
 from auth import AuthError
 
@@ -129,9 +130,39 @@ def test_dev_login_only_when_enabled(settings, engine, students, sheets):
 
 def test_sync_endpoint_needs_the_token(settings, engine, students, sheets):
     c = create_app(settings, engine, sheets).test_client()
+    # 1. Unauthenticated request -> rejected 403
     assert c.post("/api/sync").status_code == 403
+    # 2. Incorrect token -> rejected 403
     assert c.post("/api/sync", headers={"X-Sync-Token": "wrong"}).status_code == 403
+    # 3. Removed hardcoded fallback token -> rejected 403
+    assert c.post("/api/sync", headers={"X-Sync-Token": "bitsathy-sync-2026"}).status_code == 403
+    # 4. Correct configured token -> accepted 200
     assert c.post("/api/sync", headers={"X-Sync-Token": "sync-secret"}).status_code == 200
+    # 5. No configured token -> rejected safely even if token header passed
+    c_no_token = create_app(replace(settings, sync_token=""), engine, sheets).test_client()
+    assert c_no_token.post("/api/sync", headers={"X-Sync-Token": "sync-secret"}).status_code == 403
+    assert c_no_token.post("/api/sync", headers={"X-Sync-Token": "bitsathy-sync-2026"}).status_code == 403
+
+
+def test_production_secret_key_safety(monkeypatch):
+    import os
+    import pytest
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    
+    # Missing SECRET_KEY in production raises RuntimeError
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="SECRET_KEY environment variable is required in production"):
+        config.load_settings()
+
+    # Default dev secret in production raises RuntimeError
+    monkeypatch.setenv("SECRET_KEY", "dev-only-change-me")
+    with pytest.raises(RuntimeError, match="Insecure default SECRET_KEY .* is forbidden in production"):
+        config.load_settings()
+
+    # Valid secret in production succeeds
+    monkeypatch.setenv("SECRET_KEY", "production-secure-key-1234567890")
+    s = config.load_settings()
+    assert s.secret_key == "production-secure-key-1234567890"
 
 
 def test_healthz_and_page(settings, engine, sheets):

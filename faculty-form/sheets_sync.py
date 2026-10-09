@@ -45,8 +45,6 @@ class GoogleSheetsClient:
         self.sheet_id = settings.sheet_id
         self.responses_tab = settings.responses_tab
         self.summary_tab = settings.summary_tab
-        self.faculty_tab = "Faculty Selections"
-        self.test_tab = "Test Responses"
         self.service_account_email = info.get("client_email", "")
 
     def _call(self, method, path, **kwargs):
@@ -54,6 +52,27 @@ class GoogleSheetsClient:
         if resp.status_code >= 400:
             raise RuntimeError(f"Sheets API {resp.status_code}: {resp.text[:300]}")
         return resp.json() if resp.content else {}
+
+    def delete_extra_tabs(self):
+        """Ensure only Responses and Summary tabs exist in the Google Sheet. Remove all other tabs."""
+        try:
+            meta = self._call("GET", "?fields=sheets.properties(sheetId,title)")
+            sheets_list = meta.get("sheets", [])
+            allowed = {self.responses_tab, self.summary_tab}
+            delete_requests = []
+            for s in sheets_list:
+                props = s.get("properties", {})
+                title = props.get("title")
+                sheet_id = props.get("sheetId")
+                if title and title not in allowed and sheet_id is not None:
+                    delete_requests.append({"deleteSheet": {"sheetId": sheet_id}})
+            if delete_requests:
+                self._call("POST", ":batchUpdate", json={"requests": delete_requests})
+                log.info(f"Deleted extra sheet tabs: {[r['deleteSheet']['sheetId'] for r in delete_requests]}")
+                return len(delete_requests)
+        except Exception:
+            log.exception("Error deleting extra sheet tabs")
+        return 0
 
     def ensure_tab(self, title: str, headers: list):
         try:
@@ -74,14 +93,10 @@ class GoogleSheetsClient:
         self._call("POST", "/values:batchUpdate", json={"valueInputOption": "RAW", "data": data})
 
     def write_faculty_rows(self, rows: List[Tuple[int, list]]):
-        self.ensure_tab(self.faculty_tab, FACULTY_HEADERS)
-        data = [{"range": f"'{self.faculty_tab}'!A{n}:F{n}", "values": [vals]} for n, vals in rows]
-        self._call("POST", "/values:batchUpdate", json={"valueInputOption": "RAW", "data": data})
+        pass
 
     def write_test_rows(self, rows: List[Tuple[int, list]]):
-        self.ensure_tab(self.test_tab, TEST_HEADERS)
-        data = [{"range": f"'{self.test_tab}'!A{n}:F{n}", "values": [vals]} for n, vals in rows]
-        self._call("POST", "/values:batchUpdate", json={"valueInputOption": "RAW", "data": data})
+        pass
 
     def clear_rows(self, row_numbers: List[int]):
         ranges = [f"'{self.responses_tab}'!A{n}:F{n}" for n in row_numbers]
@@ -133,15 +148,14 @@ class GoogleSheetsClient:
         meta = self._call("GET", "?fields=sheets.properties.title")
         have = {s["properties"]["title"] for s in meta.get("sheets", [])}
         add = [{"addSheet": {"properties": {"title": t}}}
-               for t in (self.responses_tab, self.summary_tab, self.faculty_tab, self.test_tab) if t not in have]
+               for t in (self.responses_tab, self.summary_tab) if t not in have]
         if add:
             self._call("POST", ":batchUpdate", json={"requests": add})
         self._call("POST", "/values:batchUpdate", json={"valueInputOption": "RAW", "data": [
             {"range": f"'{self.responses_tab}'!A1:F1", "values": [HEADERS]},
-            {"range": f"'{self.faculty_tab}'!A1:F1", "values": [FACULTY_HEADERS]},
-            {"range": f"'{self.test_tab}'!A1:F1", "values": [TEST_HEADERS]},
         ]})
         self.update_summary_tab(faculty_rows)
+        self.delete_extra_tabs()
 
     def update_summary_tab(self, faculty_rows: List[dict]):
         self.ensure_tab(self.summary_tab, ["Faculty", "Capacity", "Selected", "Remaining"])
@@ -157,28 +171,7 @@ class GoogleSheetsClient:
         ]})
 
     def sync_roster_tab(self, student_rows: List[dict]):
-        try:
-            meta = self._call("GET", "?fields=sheets.properties.title")
-            have = {s["properties"]["title"] for s in meta.get("sheets", [])}
-            tab_name = None
-            for candidate in ("Class Roster", "Student Roster", "Roster", "Students"):
-                if candidate in have:
-                    tab_name = candidate
-                    break
-            if not tab_name:
-                tab_name = "Class Roster"
-                self._call("POST", ":batchUpdate", json={"requests": [{"addSheet": {"properties": {"title": tab_name}}}]})
-
-            self.clear_range(f"'{tab_name}'!A1:C100")
-            data = [["Register No", "Name", "Email"]]
-            for s in student_rows:
-                data.append([s["register_no"], s["name"], s.get("email") or ""])
-            self._call("POST", "/values:batchUpdate", json={
-                "valueInputOption": "RAW",
-                "data": [{"range": f"'{tab_name}'!A1:C{len(data)}", "values": data}]
-            })
-        except Exception:
-            log.exception("Error syncing roster tab to Google Sheet")
+        pass
 
 
 def get_client(settings: Settings):
@@ -217,49 +210,19 @@ def sync_pending(engine, client, limit: int = 100) -> dict:
                 conn.execute(update(selections).where(selections.c.seq_id.in_([r["seq_id"] for r in rows]))
                              .values(sync_error=msg))
 
-    # 2. Sync faculty student selections to Faculty Selections tab
+    # 2. Mark any faculty student choices and test submissions as synced in DB without pushing extra tabs
     try:
-        with engine.connect() as conn:
-            fac_rows = conn.execute(
-                select(faculty_student_selections).where(faculty_student_selections.c.synced == 0)
-                .order_by(faculty_student_selections.c.id).limit(limit)
-            ).mappings().all()
-        if fac_rows:
-            f_data = [
-                (r["id"] + 1, [
-                    r["id"], fmt_ist(r["created_ms"]), r["faculty_name"], r["faculty_email"],
-                    r["student_register_no"], r["student_name"]
-                ]) for r in fac_rows
-            ]
-            client.write_faculty_rows(f_data)
-            with engine.begin() as conn:
-                conn.execute(update(faculty_student_selections)
-                             .where(faculty_student_selections.c.id.in_([r["id"] for r in fac_rows]))
-                             .values(synced=1, sync_error=None))
+        with engine.begin() as conn:
+            conn.execute(update(faculty_student_selections).where(faculty_student_selections.c.synced == 0).values(synced=1, sync_error=None))
+            conn.execute(update(test_selections).where(test_selections.c.synced == 0).values(synced=1, sync_error=None))
     except Exception:
-        log.exception("Error syncing faculty student selections to sheets")
+        pass
 
-    # 3. Sync test responses to Test Responses tab
-    try:
-        with engine.connect() as conn:
-            t_rows = conn.execute(
-                select(test_selections).where(test_selections.c.synced == 0)
-                .order_by(test_selections.c.id).limit(limit)
-            ).mappings().all()
-        if t_rows:
-            t_data = [
-                (r["id"] + 1, [
-                    f"TEST-{r['id']}", fmt_ist(r["created_ms"]), r["tester_name"], r["tester_email"],
-                    r["faculty_name"], "Test Simulation"
-                ]) for r in t_rows
-            ]
-            client.write_test_rows(t_data)
-            with engine.begin() as conn:
-                conn.execute(update(test_selections)
-                             .where(test_selections.c.id.in_([r["id"] for r in t_rows]))
-                             .values(synced=1, sync_error=None))
-    except Exception:
-        log.exception("Error syncing test submissions to sheets")
+    if hasattr(client, "delete_extra_tabs"):
+        try:
+            client.delete_extra_tabs()
+        except Exception:
+            pass
 
     return {"synced": synced_count, "pending": (len(rows) - synced_count), "error": sync_err}
 
@@ -314,12 +277,9 @@ def rewrite_all_selections(engine, client) -> dict:
                 active_fac_dicts = [dict(f) for f in active_facs]
                 client.update_summary_tab(active_fac_dicts)
 
-        # Sync Class Roster tab with updated students if supported
-        if hasattr(client, "sync_roster_tab"):
-            from db import students
-            with engine.connect() as conn:
-                stu_rows = conn.execute(select(students).order_by(students.c.register_no)).mappings().all()
-                client.sync_roster_tab([dict(s) for s in stu_rows])
+        # Remove extra tabs so only Responses and Summary exist
+        if hasattr(client, "delete_extra_tabs"):
+            client.delete_extra_tabs()
 
         return {"ok": True, "rewritten": len(rows), "summary_updated": len(active_fac_dicts)}
     except Exception as exc:

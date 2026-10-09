@@ -62,6 +62,13 @@ def main(argv):
     elif cmd == "sync":
         client = sheets_sync.get_client(settings)
         print(sheets_sync.sync_pending(engine, client, limit=1000))
+    elif cmd == "clean-tabs":
+        client = sheets_sync.get_client(settings)
+        if client is None:
+            print("Set GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE first.")
+            return 1
+        n = client.delete_extra_tabs()
+        print(f"Removed {n} extra tab(s). Only Responses and Summary remain.")
     elif cmd == "init-sheet":
         client = sheets_sync.get_client(settings)
         if client is None:
@@ -69,7 +76,7 @@ def main(argv):
             return 1
         db.seed(engine)
         client.init_layout([dict(r) for r in allocation.availability(engine)])
-        print(f"Sheet ready. Share it as Editor with: {client.service_account_email}")
+        print(f"Sheet ready with Responses & Summary tabs only. Share it as Editor with: {client.service_account_email}")
     elif cmd == "export":
         path = argv[2] if len(argv) > 2 else "selections.csv"
         with engine.connect() as conn:
